@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/go-chi/chi/v5"
 	models "github.com/ttl256/metrics/internal/model"
 	"github.com/ttl256/metrics/internal/service"
 )
@@ -25,6 +26,19 @@ func NewApp(s *service.Service) *App {
 	return &App{
 		service: s,
 	}
+}
+
+func (a App) GetRouter() *chi.Mux {
+	r := chi.NewRouter()
+	r.Get("/healthz", a.HealthHandler)
+	r.Get("/{id}", a.GetHandler)
+	r.Get("/all", a.GetAllHandler)
+	r.Route("/update", func(r chi.Router) {
+		r.Post("/{type}/{name}/{value}", a.UpdateHandler)
+		r.Post("/{type}", http.NotFound)
+	})
+
+	return r
 }
 
 func (a App) UpdateHandler(w http.ResponseWriter, r *http.Request) {
@@ -73,10 +87,7 @@ func (a App) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a App) HealthHandler(w http.ResponseWriter, _ *http.Request) {
-	type resp struct {
-		Status string `json:"status"`
-	}
-	data, err := json.Marshal(resp{Status: `OK`})
+	data, err := json.Marshal(HealthResponse{Status: `OK`})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
