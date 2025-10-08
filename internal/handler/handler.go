@@ -31,11 +31,10 @@ func NewApp(s *service.Service) *App {
 func (a App) GetRouter() *chi.Mux {
 	r := chi.NewRouter()
 	r.Get("/healthz", a.HealthHandler)
-	r.Get("/{id}", a.GetHandler)
+	// r.Get("/{id}", a.GetHandler)
+	r.Get("/value/{type}/{name}", a.GetHandler)
 	r.Get("/all", a.GetAllHandler)
-	r.Route("/update", func(r chi.Router) {
-		r.Post("/{type}/{name}/{value}", a.UpdateHandler)
-	})
+	r.Post("/update/{type}/{name}/{value}", a.UpdateHandler)
 
 	return r
 }
@@ -53,7 +52,7 @@ func (a App) UpdateHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a App) GetHandler(w http.ResponseWriter, r *http.Request) {
-	metricsID := r.PathValue("id")
+	metricsID := r.PathValue("name")
 	if metricsID == "" {
 		http.Error(w, "empty id", http.StatusBadRequest)
 		return
@@ -63,12 +62,14 @@ func (a App) GetHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	data, err := json.Marshal(metrics)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	var value string
+	switch metrics.MType {
+	case models.Gauge:
+		value = fmt.Sprintf("%f", *metrics.Value)
+	case models.Counter:
+		value = strconv.FormatInt(*metrics.Delta, 10)
 	}
-	_, _ = w.Write(data)
+	_, _ = w.Write([]byte(value))
 }
 
 func (a App) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
