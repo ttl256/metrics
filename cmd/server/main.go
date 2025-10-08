@@ -6,6 +6,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/ttl256/metrics/internal/handler"
 	"github.com/ttl256/metrics/internal/repository"
 	"github.com/ttl256/metrics/internal/service"
@@ -20,16 +22,11 @@ func main() {
 
 func run() error {
 	app := handler.NewApp(service.NewService(repository.NewMemStorage()))
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", app.HealthHandler)
-	mux.Handle("POST /update/{type}", http.NotFoundHandler())
-	mux.HandleFunc("POST /update/{type}/{name}/{value}", app.UpdateHandler)
-	mux.HandleFunc("GET /{id}", app.GetHandler)
-	mux.HandleFunc("GET /all", app.GetAllHandler)
+	_ = chi.NewRouter()
 
 	server := &http.Server{
 		Addr:         ":8080",
-		Handler:      mux,
+		Handler:      app.GetRouter(),
 		IdleTimeout:  time.Minute,
 		ReadTimeout:  10 * time.Second, //nolint: mnd //fine
 		WriteTimeout: 30 * time.Second, //nolint: mnd //fine

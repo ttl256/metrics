@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/go-chi/chi/v5"
 	models "github.com/ttl256/metrics/internal/model"
 	"github.com/ttl256/metrics/internal/service"
 )
@@ -27,6 +28,17 @@ func NewApp(s *service.Service) *App {
 	}
 }
 
+func (a App) GetRouter() *chi.Mux {
+	r := chi.NewRouter()
+	r.Get("/healthz", a.HealthHandler)
+	// r.Get("/{id}", a.GetHandler)
+	r.Get("/value/{type}/{name}", a.GetHandler)
+	r.Get("/all", a.GetAllHandler)
+	r.Post("/update/{type}/{name}/{value}", a.UpdateHandler)
+
+	return r
+}
+
 func (a App) UpdateHandler(w http.ResponseWriter, r *http.Request) {
 	metrics, err := newMetrics(r.PathValue("type"), r.PathValue("name"), r.PathValue("value"))
 	if err != nil {
@@ -40,22 +52,27 @@ func (a App) UpdateHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a App) GetHandler(w http.ResponseWriter, r *http.Request) {
-	metricsID := r.PathValue("id")
+	metricsID := r.PathValue("name")
 	if metricsID == "" {
 		http.Error(w, "empty id", http.StatusBadRequest)
 		return
 	}
 	metrics, err := a.service.Get(metricsID)
 	if err != nil {
+		if errors.Is(err, service.ErrMetricsNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	data, err := json.Marshal(metrics)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	var value string
+	switch metrics.MType {
+	case models.Gauge:
+		value = strconv.FormatFloat(*metrics.Value, 'f', -1, 64)
+	case models.Counter:
+		value = strconv.FormatInt(*metrics.Delta, 10)
 	}
-	_, _ = w.Write(data)
+	_, _ = w.Write([]byte(value))
 }
 
 func (a App) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
@@ -73,10 +90,7 @@ func (a App) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a App) HealthHandler(w http.ResponseWriter, _ *http.Request) {
-	type resp struct {
-		Status string `json:"status"`
-	}
-	data, err := json.Marshal(resp{Status: `OK`})
+	data, err := json.Marshal(HealthResponse{Status: `OK`})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
