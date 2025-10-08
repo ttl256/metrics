@@ -68,7 +68,7 @@ func (a App) GetHandler(w http.ResponseWriter, r *http.Request) {
 	var value string
 	switch metrics.MType {
 	case models.Gauge:
-		value = fmt.Sprintf("%f", *metrics.Value)
+		value = strconv.FormatFloat(*metrics.Value, 'f', -1, 64)
 	case models.Counter:
 		value = strconv.FormatInt(*metrics.Delta, 10)
 	}

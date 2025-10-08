@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"testing"
 
 	"github.com/go-resty/resty/v2"
@@ -42,9 +41,9 @@ func TestAppUpdateHandler(t *testing.T) {
 		var (
 			_type = models.Gauge
 			name  = "test1"
-			value = 13.37
+			value = "13.37"
 		)
-		resp, err := client.R().Post(srv.URL + "/update/" + fmt.Sprintf("%s/%s/%f", _type, name, value))
+		resp, err := client.R().Post(srv.URL + "/update/" + fmt.Sprintf("%s/%s/%s", _type, name, value))
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode())
 
@@ -52,9 +51,7 @@ func TestAppUpdateHandler(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode())
 
-		got, err := strconv.ParseFloat(string(resp.Body()), 64)
-		require.NoError(t, err)
-		assert.InEpsilon(t, value, got, 1e-9)
+		assert.Equal(t, value, string(resp.Body()))
 	})
 
 	t.Run("not found", func(t *testing.T) {
