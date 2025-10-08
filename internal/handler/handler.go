@@ -59,6 +59,9 @@ func (a App) GetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	metrics, err := a.service.Get(metricsID)
 	if err != nil {
+		if errors.Is(err, service.ErrMetricsNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

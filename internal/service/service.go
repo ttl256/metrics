@@ -17,8 +17,9 @@ type MetricsRepository interface {
 }
 
 var (
-	ErrUpdateMetrics = errors.New("cannot update metrics")
-	ErrGetMetrics    = errors.New("cannot get metrics")
+	ErrUpdateMetrics   = errors.New("cannot update metrics")
+	ErrGetMetrics      = errors.New("cannot get metrics")
+	ErrMetricsNotFound = errors.New("requested metrics not found")
 )
 
 func NewCounterMetric(name string, value int64) models.Metrics {
@@ -62,6 +63,9 @@ func (s *Service) Save(metric models.Metrics) error {
 func (s *Service) Get(id string) (models.Metrics, error) {
 	metrics, err := s.repo.Get(id)
 	if err != nil {
+		if errors.Is(err, repository.ErrMetricsNotFound) {
+			return models.Metrics{}, ErrMetricsNotFound
+		}
 		return models.Metrics{}, xerrors.WithStack(err)
 	}
 	return metrics, nil
