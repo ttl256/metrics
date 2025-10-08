@@ -35,7 +35,6 @@ func (a App) GetRouter() *chi.Mux {
 	r.Get("/all", a.GetAllHandler)
 	r.Route("/update", func(r chi.Router) {
 		r.Post("/{type}/{name}/{value}", a.UpdateHandler)
-		r.Post("/{type}", http.NotFound)
 	})
 
 	return r
