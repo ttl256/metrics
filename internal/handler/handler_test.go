@@ -16,7 +16,7 @@ import (
 )
 
 func TestAppHealthHandler(t *testing.T) {
-	a := NewApp(nil)
+	a := NewApp(nil, nil)
 	srv := httptest.NewServer(a.GetRouter())
 	defer srv.Close()
 
@@ -31,7 +31,7 @@ func TestAppHealthHandler(t *testing.T) {
 }
 
 func TestAppUpdateHandler(t *testing.T) {
-	a := NewApp(service.NewService(repository.NewMemStorage()))
+	a := NewApp(nil, service.NewService(repository.NewMemStorage()))
 	srv := httptest.NewServer(a.GetRouter())
 	defer srv.Close()
 

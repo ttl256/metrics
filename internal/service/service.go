@@ -17,8 +17,7 @@ type MetricsRepository interface {
 }
 
 var (
-	ErrUpdateMetrics   = errors.New("cannot update metrics")
-	ErrGetMetrics      = errors.New("cannot get metrics")
+	errUpdateMetrics   = errors.New("cannot update metrics")
 	ErrMetricsNotFound = errors.New("requested metrics not found")
 )
 
@@ -56,7 +55,7 @@ func (s *Service) Save(metric models.Metrics) error {
 	case models.Counter:
 		return xerrors.WithStack(s.repo.Save(NewCounterMetric(metric.ID, *m.Delta+*metric.Delta)))
 	default:
-		return errors.Join(ErrUpdateMetrics, fmt.Errorf("unknown metrics type %q", metric.MType))
+		return errors.Join(errUpdateMetrics, fmt.Errorf("unknown metrics type %q", metric.MType))
 	}
 }
 

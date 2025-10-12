@@ -6,7 +6,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
-	"net/url"
+	neturl "net/url"
 	"runtime"
 	"strconv"
 	"strings"
@@ -14,6 +14,7 @@ import (
 
 	xerrors "github.com/pkg/errors"
 
+	"github.com/ttl256/metrics/internal/config"
 	models "github.com/ttl256/metrics/internal/model"
 )
 
@@ -22,8 +23,11 @@ type Metrics struct {
 	client  *http.Client
 }
 
-func (m *Metrics) Send(ctx context.Context, url url.URL) error {
-	path := url.String() + "/update/" + metricsToPath(m.metrics)
+func (m *Metrics) Send(ctx context.Context, url string) error {
+	path, err := neturl.JoinPath(url, "update", metricsToPath(m.metrics))
+	if err != nil {
+		return xerrors.WithStack(err)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, path, nil)
 	if err != nil {
 		return xerrors.WithStack(err)
@@ -41,19 +45,19 @@ func (m *Metrics) Send(ctx context.Context, url url.URL) error {
 }
 
 type Agent struct {
-	url            url.URL
+	url            string
 	metrics        []models.Metrics
 	pollInterval   time.Duration
 	reportInterval time.Duration
 	counter        int64
 }
 
-func NewAgent(url url.URL, pollInterval, reportInterval time.Duration) *Agent {
+func NewAgent(cfg *config.Agent) *Agent {
 	return &Agent{
-		url:            url,
+		url:            cfg.Endpoint,
 		metrics:        nil,
-		pollInterval:   pollInterval,
-		reportInterval: reportInterval,
+		pollInterval:   cfg.PollInterval,
+		reportInterval: cfg.ReportInterval,
 		counter:        0,
 	}
 }
@@ -83,6 +87,7 @@ func (a *Agent) Run(ctx context.Context) error {
 				if err != nil {
 					return err
 				}
+				a.counter = 0
 			}
 		case <-ctx.Done():
 			return xerrors.WithStack(ctx.Err())
@@ -130,7 +135,7 @@ func (a *Agent) BuildRuntimeMetrics() []models.Metrics {
 func metricsToPath(metrics models.Metrics) string {
 	switch metrics.MType {
 	case models.Gauge:
-		return strings.Join([]string{metrics.MType, metrics.ID, fmt.Sprintf("%f", *metrics.Value)}, "/")
+		return strings.Join([]string{metrics.MType, metrics.ID, strconv.FormatFloat(*metrics.Value, 'f', -1, 64)}, "/")
 	case models.Counter:
 		return strings.Join([]string{metrics.MType, metrics.ID, strconv.FormatInt(*metrics.Delta, 10)}, "/")
 	default:

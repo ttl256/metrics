@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,7 +22,7 @@ func TestSendMetrics(t *testing.T) {
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
-	serverURL, _ := url.Parse(server.URL)
+	serverURL := server.URL
 
 	client := &http.Client{}
 	v := 13.37
@@ -38,7 +37,7 @@ func TestSendMetrics(t *testing.T) {
 		client: client,
 	}
 	ctx := context.Background()
-	err := m.Send(ctx, *serverURL)
+	err := m.Send(ctx, serverURL)
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)

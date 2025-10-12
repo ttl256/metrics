@@ -9,8 +9,6 @@ import (
 )
 
 var (
-	ErrUpdateMetrics   = errors.New("cannot update metrics")
-	ErrGetMetrics      = errors.New("cannot get metrics")
 	ErrMetricsNotFound = errors.New("requested metrics not found")
 )
 

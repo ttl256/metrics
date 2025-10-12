@@ -3,16 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"os"
-	"time"
 
 	"github.com/ttl256/metrics/internal/agent"
-)
-
-const (
-	defaultPollInterval   = 2 * time.Second
-	defaultReportInterval = 10 * time.Second
+	"github.com/ttl256/metrics/internal/config"
 )
 
 func main() {
@@ -23,8 +17,11 @@ func main() {
 }
 
 func run() error {
+	cfg, err := config.NewAgent()
+	if err != nil {
+		return fmt.Errorf("creating agent: %w", err)
+	}
 	ctx := context.Background()
-	_url, _ := url.Parse("http://localhost:8080")
-	agent := agent.NewAgent(*_url, defaultPollInterval, defaultReportInterval)
+	agent := agent.NewAgent(cfg)
 	return fmt.Errorf("agent: %w", agent.Run(ctx))
 }

@@ -2,12 +2,9 @@ package main
 
 import (
 	"fmt"
-	"net/http"
 	"os"
-	"time"
 
-	"github.com/go-chi/chi/v5"
-
+	"github.com/ttl256/metrics/internal/config"
 	"github.com/ttl256/metrics/internal/handler"
 	"github.com/ttl256/metrics/internal/repository"
 	"github.com/ttl256/metrics/internal/service"
@@ -21,19 +18,8 @@ func main() {
 }
 
 func run() error {
-	app := handler.NewApp(service.NewService(repository.NewMemStorage()))
-	_ = chi.NewRouter()
+	cfg := config.NewApplication()
+	app := handler.NewApp(cfg, service.NewService(repository.NewMemStorage()))
 
-	server := &http.Server{
-		Addr:         ":8080",
-		Handler:      app.GetRouter(),
-		IdleTimeout:  time.Minute,
-		ReadTimeout:  10 * time.Second, //nolint: mnd //fine
-		WriteTimeout: 30 * time.Second, //nolint: mnd //fine
-	}
-
-	if err := server.ListenAndServe(); err != nil {
-		return fmt.Errorf("serving HTTP: %w", err)
-	}
-	return nil
+	return fmt.Errorf("app: %w", app.Run())
 }
