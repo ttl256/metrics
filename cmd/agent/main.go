@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
 	"os"
 
@@ -17,11 +19,19 @@ func main() {
 }
 
 func run() error {
-	cfg, err := config.NewAgent()
+	cfg := config.DefaultAgent()
+	fs := flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	err := cfg.ApplyFlags(fs, os.Args[1:])
 	if err != nil {
-		return fmt.Errorf("creating agent: %w", err)
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return fmt.Errorf("initiating app: %w", err)
+	}
+	if err = cfg.ApplyEnv(); err != nil {
+		return fmt.Errorf("initiating app: %w", err)
 	}
 	ctx := context.Background()
-	agent := agent.NewAgent(cfg)
-	return fmt.Errorf("agent: %w", agent.Run(ctx))
+	a := agent.NewAgent(cfg.Endpoint, cfg.PollInterval, cfg.ReportInterval)
+	return fmt.Errorf("agent: %w", a.Run(ctx))
 }

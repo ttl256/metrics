@@ -1,8 +1,12 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"fmt"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/ttl256/metrics/internal/config"
 	"github.com/ttl256/metrics/internal/handler"
@@ -18,8 +22,33 @@ func main() {
 }
 
 func run() error {
-	cfg := config.NewApplication()
-	app := handler.NewApp(cfg, service.NewService(repository.NewMemStorage()))
+	cfg := config.DefaultServer()
+	fs := flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	err := cfg.ApplyFlags(fs, os.Args[1:])
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return fmt.Errorf("initiating app: %w", err)
+	}
+	if err = cfg.ApplyEnv(); err != nil {
+		return fmt.Errorf("initiating app: %w", err)
+	}
 
-	return fmt.Errorf("app: %w", app.Run())
+	repo := repository.NewMemStorage()
+	svc := service.NewService(repo)
+	h := handler.NewHTTPHandler(svc)
+
+	srv := &http.Server{
+		Addr:         cfg.Address,
+		Handler:      h.Routes(),
+		IdleTimeout:  time.Minute,
+		ReadTimeout:  10 * time.Second, //nolint: mnd //fine
+		WriteTimeout: 30 * time.Second, //nolint: mnd //fine
+	}
+
+	if err = srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("serve http: %w", err)
+	}
+	return nil
 }

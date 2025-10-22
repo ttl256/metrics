@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/ttl256/metrics/internal/config"
 	models "github.com/ttl256/metrics/internal/model"
 	"github.com/ttl256/metrics/internal/service"
 )
@@ -20,65 +18,54 @@ var (
 	ErrInvalidMetricsName  = errors.New("invalid metrics name")
 )
 
-type App struct {
-	config  *config.Application
-	service *service.Service
+type MetricsService interface {
+	Save(models.Metrics) error
+	Get(string) (models.Metrics, error)
+	GetAll() ([]models.Metrics, error)
 }
 
-func NewApp(cfg *config.Application, s *service.Service) *App {
-	return &App{
-		config:  cfg,
-		service: s,
+type HTTPHandler struct {
+	svc MetricsService
+}
+
+func NewHTTPHandler(svc MetricsService) *HTTPHandler {
+	return &HTTPHandler{
+		svc: svc,
 	}
 }
 
-func (a App) Run() error {
-	server := &http.Server{
-		Addr:         a.config.Address,
-		Handler:      a.GetRouter(),
-		IdleTimeout:  time.Minute,
-		ReadTimeout:  10 * time.Second, //nolint: mnd //fine
-		WriteTimeout: 30 * time.Second, //nolint: mnd //fine
-	}
-
-	if err := server.ListenAndServe(); err != nil {
-		return fmt.Errorf("serving HTTP: %w", err)
-	}
-	return nil
-}
-
-func (a App) GetRouter() *chi.Mux {
+func (h *HTTPHandler) Routes() *chi.Mux {
 	r := chi.NewRouter()
-	r.Get("/healthz", a.HealthHandler)
-	r.Get("/value/{type}/{name}", a.GetHandler)
-	r.Get("/all", a.GetAllHandler)
-	r.Post("/update/{type}/{name}/{value}", a.UpdateHandler)
+	r.Get("/healthz", h.HealthHandler)
+	r.Get("/value/{type}/{name}", h.GetHandler)
+	r.Get("/all", h.GetAllHandler)
+	r.Post("/update/{type}/{name}/{value}", h.UpdateHandler)
 
 	return r
 }
 
-func (a App) UpdateHandler(w http.ResponseWriter, r *http.Request) {
+func (h *HTTPHandler) UpdateHandler(w http.ResponseWriter, r *http.Request) {
 	metrics, err := newMetrics(r.PathValue("type"), r.PathValue("name"), r.PathValue("value"))
 	if err != nil {
 		// TODO: log error
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	if err = a.service.Save(metrics); err != nil {
+	if err = h.svc.Save(metrics); err != nil {
 		// TODO: log error
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 }
 
-func (a App) GetHandler(w http.ResponseWriter, r *http.Request) {
+func (h *HTTPHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
 	metricsID := r.PathValue("name")
 	if metricsID == "" {
 		// TODO: log error
 		http.Error(w, "empty id", http.StatusBadRequest)
 		return
 	}
-	metrics, err := a.service.Get(metricsID)
+	metrics, err := h.svc.Get(metricsID)
 	if err != nil {
 		if errors.Is(err, service.ErrMetricsNotFound) {
 			// TODO: log error
@@ -99,8 +86,8 @@ func (a App) GetHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(value))
 }
 
-func (a App) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
-	metrics, err := a.service.GetAll()
+func (h *HTTPHandler) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
+	metrics, err := h.svc.GetAll()
 	if err != nil {
 		// TODO: log error
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -115,7 +102,7 @@ func (a App) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write(data)
 }
 
-func (a App) HealthHandler(w http.ResponseWriter, _ *http.Request) {
+func (h *HTTPHandler) HealthHandler(w http.ResponseWriter, _ *http.Request) {
 	data, err := json.Marshal(HealthResponse{Status: `OK`})
 	if err != nil {
 		// TODO: log error

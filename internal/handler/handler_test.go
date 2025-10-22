@@ -16,8 +16,10 @@ import (
 )
 
 func TestAppHealthHandler(t *testing.T) {
-	a := NewApp(nil, nil)
-	srv := httptest.NewServer(a.GetRouter())
+	repo := repository.NewMemStorage()
+	svc := service.NewService(repo)
+	h := NewHTTPHandler(svc)
+	srv := httptest.NewServer(h.Routes())
 	defer srv.Close()
 
 	client := resty.New()
@@ -31,8 +33,10 @@ func TestAppHealthHandler(t *testing.T) {
 }
 
 func TestAppUpdateHandler(t *testing.T) {
-	a := NewApp(nil, service.NewService(repository.NewMemStorage()))
-	srv := httptest.NewServer(a.GetRouter())
+	repo := repository.NewMemStorage()
+	svc := service.NewService(repo)
+	h := NewHTTPHandler(svc)
+	srv := httptest.NewServer(h.Routes())
 	defer srv.Close()
 
 	client := resty.New()

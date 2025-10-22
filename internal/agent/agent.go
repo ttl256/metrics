@@ -14,7 +14,6 @@ import (
 
 	xerrors "github.com/pkg/errors"
 
-	"github.com/ttl256/metrics/internal/config"
 	models "github.com/ttl256/metrics/internal/model"
 )
 
@@ -52,12 +51,16 @@ type Agent struct {
 	counter        int64
 }
 
-func NewAgent(cfg *config.Agent) *Agent {
+func NewAgent(
+	endpoint string,
+	pollInterval time.Duration,
+	reportInterval time.Duration,
+) *Agent {
 	return &Agent{
-		url:            cfg.Endpoint,
+		url:            endpoint,
 		metrics:        nil,
-		pollInterval:   cfg.PollInterval,
-		reportInterval: cfg.ReportInterval,
+		pollInterval:   pollInterval,
+		reportInterval: reportInterval,
 		counter:        0,
 	}
 }
