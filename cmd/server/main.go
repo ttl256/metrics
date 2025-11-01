@@ -10,8 +10,10 @@ import (
 
 	"github.com/ttl256/metrics/internal/config"
 	"github.com/ttl256/metrics/internal/handler"
+	"github.com/ttl256/metrics/internal/logger"
 	"github.com/ttl256/metrics/internal/repository"
 	"github.com/ttl256/metrics/internal/service"
+	"go.uber.org/zap"
 )
 
 func main() {
@@ -22,6 +24,12 @@ func main() {
 }
 
 func run() error {
+	if err := logger.Initialize("INFO"); err != nil {
+		return fmt.Errorf("setting logger: %w", err)
+	}
+	defer func() {
+		_ = logger.Log.Sync()
+	}()
 	cfg := config.DefaultServer()
 	fs := flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 	err := cfg.ApplyFlags(fs, os.Args[1:])
@@ -47,6 +55,7 @@ func run() error {
 		WriteTimeout: 30 * time.Second, //nolint: mnd //fine
 	}
 
+	logger.Log.Info("starting server", zap.String("address", cfg.Address))
 	if err = srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("serve http: %w", err)
 	}

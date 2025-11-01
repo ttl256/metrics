@@ -36,10 +36,14 @@ func NewHTTPHandler(svc MetricsService) *HTTPHandler {
 
 func (h *HTTPHandler) Routes() *chi.Mux {
 	r := chi.NewRouter()
-	r.Get("/healthz", h.HealthHandler)
-	r.Get("/value/{type}/{name}", h.GetHandler)
-	r.Get("/all", h.GetAllHandler)
-	r.Post("/update/{type}/{name}/{value}", h.UpdateHandler)
+	// r.Get("/healthz", h.HealthHandler)
+	r.Method(http.MethodGet, "/healthz", h.WithLogging(http.HandlerFunc(h.HealthHandler)))
+	// r.Get("/value/{type}/{name}", h.GetHandler)
+	r.Method(http.MethodGet, "/value/{type}/{name}", h.WithLogging(http.HandlerFunc(h.GetHandler)))
+	// r.Get("/all", h.GetAllHandler)
+	r.Method(http.MethodGet, "/all", h.WithLogging(http.HandlerFunc(h.GetAllHandler)))
+	// r.Post("/update/{type}/{name}/{value}", h.UpdateHandler)
+	r.Method(http.MethodPost, "/update/{type}/{name}/{value}", h.WithLogging(http.HandlerFunc(h.UpdateHandler)))
 
 	return r
 }
@@ -56,6 +60,7 @@ func (h *HTTPHandler) UpdateHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *HTTPHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
@@ -83,6 +88,7 @@ func (h *HTTPHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
 	case models.Counter:
 		value = strconv.FormatInt(*metrics.Delta, 10)
 	}
+	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(value))
 }
 
@@ -99,6 +105,8 @@ func (h *HTTPHandler) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("content-type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }
 
