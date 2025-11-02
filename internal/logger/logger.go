@@ -1,29 +1,30 @@
 package logger
 
 import (
-	"time"
+	"log/slog"
+	"os"
 
 	xerrors "github.com/pkg/errors"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
-var Log *zap.Logger = zap.NewNop() //nolint: gochecknoglobals //TODO
-
 func Initialize(level string) error {
-	lvl, err := zap.ParseAtomicLevel(level)
+	lvl := slog.Level(0)
+	err := lvl.UnmarshalText([]byte(level))
 	if err != nil {
 		return xerrors.WithStack(err)
 	}
-	cfg := zap.NewProductionConfig()
-	cfg.EncoderConfig.EncodeTime = func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
-		enc.AppendString(t.UTC().Format(time.RFC3339))
-	}
-	cfg.Level = lvl
-	zl, err := cfg.Build()
-	if err != nil {
-		return xerrors.WithStack(err)
-	}
-	Log = zl
+	lVar := slog.LevelVar{}
+	lVar.Set(lvl)
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		AddSource: true,
+		Level:     &lVar,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if len(groups) == 0 && a.Key == slog.TimeKey {
+				a.Value = slog.TimeValue(a.Value.Time().UTC())
+			}
+			return a
+		},
+	}))
+	slog.SetDefault(logger)
 	return nil
 }

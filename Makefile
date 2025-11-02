@@ -4,6 +4,10 @@ GOLANGCILINT_CMD := $(GOTOOLS_DIR)/golangci-lint-v2
 GOLANGCILINT_VERSION := v2.5.0
 GOLANGCILINT_CFG := .golangci.yml
 
+.PHONY: test
+test:
+	$(GOCMD) test ./...
+
 .PHONY: audit
 audit: audit/tidy audit/verify-deps audit/lint
 
@@ -27,3 +31,8 @@ install-golangci-lint:
 .PHONY: run
 run:
 	$(GOCMD) run ./cmd/server
+
+.PHONY: build
+build:
+	$(GOCMD) build -C ./cmd/server
+	$(GOCMD) build -C ./cmd/agent

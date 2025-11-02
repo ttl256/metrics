@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/httplog/v3"
 	models "github.com/ttl256/metrics/internal/model"
 	"github.com/ttl256/metrics/internal/service"
 )
@@ -36,14 +38,14 @@ func NewHTTPHandler(svc MetricsService) *HTTPHandler {
 
 func (h *HTTPHandler) Routes() *chi.Mux {
 	r := chi.NewRouter()
-	// r.Get("/healthz", h.HealthHandler)
-	r.Method(http.MethodGet, "/healthz", h.WithLogging(http.HandlerFunc(h.HealthHandler)))
-	// r.Get("/value/{type}/{name}", h.GetHandler)
-	r.Method(http.MethodGet, "/value/{type}/{name}", h.WithLogging(http.HandlerFunc(h.GetHandler)))
-	// r.Get("/all", h.GetAllHandler)
-	r.Method(http.MethodGet, "/all", h.WithLogging(http.HandlerFunc(h.GetAllHandler)))
-	// r.Post("/update/{type}/{name}/{value}", h.UpdateHandler)
-	r.Method(http.MethodPost, "/update/{type}/{name}/{value}", h.WithLogging(http.HandlerFunc(h.UpdateHandler)))
+	log := slog.Default()
+	r.Use(httplog.RequestLogger(log, nil))
+	r.Get("/healthz", h.HealthHandler)
+	r.Get("/value/{type}/{name}", h.GetHandler)
+	r.Get("/all", h.GetAllHandler)
+	r.Post("/update/{type}/{name}/{value}", h.UpdateHandler)
+	r.Post("/update/", h.UpdateHandlerJSON)
+	r.Post("/value/", h.GetHandlerJSON)
 
 	return r
 }
@@ -51,12 +53,41 @@ func (h *HTTPHandler) Routes() *chi.Mux {
 func (h *HTTPHandler) UpdateHandler(w http.ResponseWriter, r *http.Request) {
 	metrics, err := newMetrics(r.PathValue("type"), r.PathValue("name"), r.PathValue("value"))
 	if err != nil {
-		// TODO: log error
+		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 	if err = h.svc.Save(metrics); err != nil {
-		// TODO: log error
+		slog.Default().Error("", slog.Any("error", err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *HTTPHandler) UpdateHandlerJSON(w http.ResponseWriter, r *http.Request) {
+	var metrics models.Metrics
+	if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
+		slog.Default().Error("", slog.Any("error", err))
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	switch metrics.MType {
+	case models.Gauge:
+		if metrics.Value == nil {
+			slog.Default().Error("", slog.Any("error", errors.New("value is not set for gauge metric")))
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+	case models.Counter:
+		if metrics.Delta == nil {
+			slog.Default().Error("", slog.Any("error", errors.New("delta is not set for counter metric")))
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+	}
+	if err := h.svc.Save(metrics); err != nil {
+		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
@@ -66,18 +97,17 @@ func (h *HTTPHandler) UpdateHandler(w http.ResponseWriter, r *http.Request) {
 func (h *HTTPHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
 	metricsID := r.PathValue("name")
 	if metricsID == "" {
-		// TODO: log error
 		http.Error(w, "empty id", http.StatusBadRequest)
 		return
 	}
 	metrics, err := h.svc.Get(metricsID)
 	if err != nil {
 		if errors.Is(err, service.ErrMetricsNotFound) {
-			// TODO: log error
+			slog.Default().Error("", slog.Any("error", err))
 			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 			return
 		}
-		// TODO: log error
+		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
@@ -92,16 +122,45 @@ func (h *HTTPHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(value))
 }
 
-func (h *HTTPHandler) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
-	metrics, err := h.svc.GetAll()
+func (h *HTTPHandler) GetHandlerJSON(w http.ResponseWriter, r *http.Request) {
+	var metricsReq models.Metrics
+	if err := json.NewDecoder(r.Body).Decode(&metricsReq); err != nil {
+		slog.Default().Error("", slog.Any("error", err))
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	metrics, err := h.svc.Get(metricsReq.ID)
 	if err != nil {
-		// TODO: log error
+		if errors.Is(err, service.ErrMetricsNotFound) {
+			slog.Default().Error("", slog.Any("error", err))
+			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		}
+		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	data, err := json.Marshal(metrics)
 	if err != nil {
-		// TODO: log error
+		slog.Default().Error("", slog.Any("error", err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("content-type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+func (h *HTTPHandler) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
+	metrics, err := h.svc.GetAll()
+	if err != nil {
+		slog.Default().Error("", slog.Any("error", err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	data, err := json.Marshal(metrics)
+	if err != nil {
+		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
@@ -113,7 +172,7 @@ func (h *HTTPHandler) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
 func (h *HTTPHandler) HealthHandler(w http.ResponseWriter, _ *http.Request) {
 	data, err := json.Marshal(HealthResponse{Status: `OK`})
 	if err != nil {
-		// TODO: log error
+		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}

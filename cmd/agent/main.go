@@ -9,6 +9,7 @@ import (
 
 	"github.com/ttl256/metrics/internal/agent"
 	"github.com/ttl256/metrics/internal/config"
+	"github.com/ttl256/metrics/internal/logger"
 )
 
 func main() {
@@ -19,9 +20,14 @@ func main() {
 }
 
 func run() error {
+	err := logger.Initialize("debug")
+	if err != nil {
+		return fmt.Errorf("setting logger: %w", err)
+	}
+
 	cfg := config.DefaultAgent()
 	fs := flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
-	err := cfg.ApplyFlags(fs, os.Args[1:])
+	err = cfg.ApplyFlags(fs, os.Args[1:])
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
