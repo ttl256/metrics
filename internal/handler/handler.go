@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httplog/v3"
 	models "github.com/ttl256/metrics/internal/model"
 	"github.com/ttl256/metrics/internal/service"
@@ -37,11 +39,15 @@ func NewHTTPHandler(svc MetricsService) *HTTPHandler {
 }
 
 func (h *HTTPHandler) Routes() *chi.Mux {
+	const compressionLevel = 5
 	r := chi.NewRouter()
 	log := slog.Default()
 	r.Use(httplog.RequestLogger(log, nil))
+	r.Use(middleware.Compress(compressionLevel, "text/html", "application/json"))
+	r.Use(gzipMiddleware)
 	r.Get("/healthz", h.HealthHandler)
 	r.Get("/value/{type}/{name}", h.GetHandler)
+	r.Get("/", h.GetAllHandler)
 	r.Get("/all", h.GetAllHandler)
 	r.Post("/update/{type}/{name}/{value}", h.UpdateHandler)
 	r.Post("/update/", h.UpdateHandlerJSON)
@@ -164,9 +170,13 @@ func (h *HTTPHandler) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("content-type", "application/json")
+	w.Header().Set("content-type", "text/html")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	var buf bytes.Buffer
+	buf.WriteString("<html>")
+	buf.Write(data)
+	buf.WriteString("</html>")
+	_, _ = w.Write(buf.Bytes())
 }
 
 func (h *HTTPHandler) HealthHandler(w http.ResponseWriter, _ *http.Request) {

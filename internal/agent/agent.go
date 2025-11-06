@@ -1,7 +1,10 @@
 package agent
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -21,7 +24,7 @@ type Metrics struct {
 }
 
 func (m *Metrics) Send(ctx context.Context, path string) error {
-	const maxRetryTime = 20 * time.Second
+	const maxRetryTime = 1 * time.Minute
 	_, err := backoff.Retry(
 		ctx, func() (bool, error) {
 			return true, m.send(ctx, path)
@@ -37,7 +40,27 @@ func (m *Metrics) send(ctx context.Context, path string) error {
 		slog.Any("metrics", m.metrics),
 	)
 	log.DebugContext(ctx, "sending request")
-	resp, err := m.client.R().SetContext(ctx).SetBody(m.metrics).Post(path)
+	body, err := json.Marshal(m.metrics)
+	if err != nil {
+		return fmt.Errorf("marshaling: %w", err)
+	}
+	var buf bytes.Buffer
+	gzWriter := gzip.NewWriter(&buf)
+	_, err = gzWriter.Write(body)
+	if err != nil {
+		return fmt.Errorf("compressing: %w", err)
+	}
+	err = gzWriter.Close()
+	if err != nil {
+		return fmt.Errorf("compressing: %w", err)
+	}
+	resp, err := m.client.R().
+		SetContentType("application/json").
+		SetHeader("Content-Encoding", "gzip").
+		SetHeader("Accept-Encoding", "gzip").
+		SetContext(ctx).
+		SetBody(buf.Bytes()).
+		Post(path)
 	if err != nil {
 		log.ErrorContext(ctx, "getting response", "error", xerrors.WithStack(err))
 		return xerrors.WithStack(err)
