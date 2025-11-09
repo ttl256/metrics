@@ -8,6 +8,7 @@ require (
 	github.com/go-chi/httplog/v3 v3.3.0
 	github.com/go-resty/resty/v2 v2.16.5
 	github.com/pkg/errors v0.9.1
+	golang.org/x/sync v0.18.0
 	resty.dev/v3 v3.0.0-beta.3
 )
 
