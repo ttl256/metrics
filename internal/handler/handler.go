@@ -24,9 +24,9 @@ var (
 )
 
 type MetricsService interface {
-	Save(models.Metrics) error
-	Get(string) (models.Metrics, error)
-	GetAll() ([]models.Metrics, error)
+	Save(context.Context, models.Metrics) error
+	Get(context.Context, string) (models.Metrics, error)
+	GetAll(context.Context) ([]models.Metrics, error)
 	RepoPing(context.Context) error
 }
 
@@ -66,7 +66,7 @@ func (h *HTTPHandler) UpdateHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	if err = h.svc.Save(metrics); err != nil {
+	if err = h.svc.Save(r.Context(), metrics); err != nil {
 		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
@@ -95,7 +95,7 @@ func (h *HTTPHandler) UpdateHandlerJSON(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
-	if err := h.svc.Save(metrics); err != nil {
+	if err := h.svc.Save(r.Context(), metrics); err != nil {
 		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
@@ -109,7 +109,7 @@ func (h *HTTPHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "empty id", http.StatusBadRequest)
 		return
 	}
-	metrics, err := h.svc.Get(metricsID)
+	metrics, err := h.svc.Get(r.Context(), metricsID)
 	if err != nil {
 		if errors.Is(err, service.ErrMetricsNotFound) {
 			slog.Default().Error("", slog.Any("error", err))
@@ -138,7 +138,7 @@ func (h *HTTPHandler) GetHandlerJSON(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	metrics, err := h.svc.Get(metricsReq.ID)
+	metrics, err := h.svc.Get(r.Context(), metricsReq.ID)
 	if err != nil {
 		if errors.Is(err, service.ErrMetricsNotFound) {
 			slog.Default().Error("", slog.Any("error", err))
@@ -160,8 +160,8 @@ func (h *HTTPHandler) GetHandlerJSON(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 }
 
-func (h *HTTPHandler) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
-	metrics, err := h.svc.GetAll()
+func (h *HTTPHandler) GetAllHandler(w http.ResponseWriter, r *http.Request) {
+	metrics, err := h.svc.GetAll(r.Context())
 	if err != nil {
 		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

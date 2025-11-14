@@ -49,7 +49,7 @@ func NewFileStorage(path string, storeInterval time.Duration, restore bool) (*Fi
 	}, nil
 }
 
-func (s *FileStorage) Save(metric models.Metrics) error {
+func (s *FileStorage) Save(ctx context.Context, metric models.Metrics) error {
 	s.metrics[metric.ID] = metric
 	if err := s.file.Truncate(0); err != nil {
 		return xerrors.WithStack(err)
@@ -59,14 +59,14 @@ func (s *FileStorage) Save(metric models.Metrics) error {
 	}
 	enc := json.NewEncoder(s.file)
 	enc.SetIndent("", "  ")
-	metrics, _ := s.GetAll()
+	metrics, _ := s.GetAll(ctx)
 	if err := enc.Encode(metrics); err != nil {
 		return xerrors.WithStack(err)
 	}
 	return nil
 }
 
-func (s *FileStorage) Get(id string) (models.Metrics, error) {
+func (s *FileStorage) Get(_ context.Context, id string) (models.Metrics, error) {
 	v, ok := s.metrics[id]
 	if !ok {
 		return models.Metrics{}, service.ErrMetricsNotFound
@@ -74,7 +74,7 @@ func (s *FileStorage) Get(id string) (models.Metrics, error) {
 	return v, nil
 }
 
-func (s *FileStorage) GetAll() ([]models.Metrics, error) {
+func (s *FileStorage) GetAll(_ context.Context) ([]models.Metrics, error) {
 	return slices.Collect(maps.Values(s.metrics)), nil
 }
 

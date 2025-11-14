@@ -52,18 +52,24 @@ func run() error {
 	ctx := context.Background()
 
 	var repo service.MetricsRepository
-	if cfg.DSN != "" {
-		repo, err = repository.NewDBStorage(cfg.DSN)
+	if cfg.DSN != "" { //nolint: nestif //let me be
+		var repoDB *repository.DBStorage
+		repoDB, err = repository.NewDBStorage(cfg.DSN)
 		if err != nil {
 			return fmt.Errorf("opening db: %w", err)
 		}
 		const repoPingTimeout = 30 * time.Second
 		pingCtx, cancel := context.WithTimeout(ctx, repoPingTimeout)
 		defer cancel()
-		err = repo.RepoPing(pingCtx)
+		err = repoDB.RepoPing(pingCtx)
 		if err != nil {
 			return fmt.Errorf("pinging repo: %w", err)
 		}
+		err = repoDB.Migrate()
+		if err != nil {
+			return fmt.Errorf("migration: %w", err)
+		}
+		repo = repoDB
 	} else {
 		repo, err = repository.NewFileStorage(cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore)
 		if err != nil {

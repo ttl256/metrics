@@ -150,7 +150,6 @@ func (a *Agent) BuildRuntimeMetrics() []models.Metrics {
 		NewGaugeMetric("Alloc", float64(m.Alloc)),
 		NewGaugeMetric("BuckHashSys", float64(m.BuckHashSys)),
 		NewGaugeMetric("Frees", float64(m.Frees)),
-		NewGaugeMetric("Frees", float64(m.Frees)),
 		NewGaugeMetric("GCCPUFraction", float64(m.GCCPUFraction)),
 		NewGaugeMetric("GCSys", float64(m.GCSys)),
 		NewGaugeMetric("HeapAlloc", float64(m.HeapAlloc)),

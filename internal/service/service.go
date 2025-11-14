@@ -11,9 +11,9 @@ import (
 )
 
 type MetricsRepository interface {
-	Save(models.Metrics) error
-	Get(string) (models.Metrics, error)
-	GetAll() ([]models.Metrics, error)
+	Save(context.Context, models.Metrics) error
+	Get(context.Context, string) (models.Metrics, error)
+	GetAll(context.Context) ([]models.Metrics, error)
 	RepoPing(context.Context) error
 }
 
@@ -42,34 +42,34 @@ func NewService(repo MetricsRepository) *Service {
 	}
 }
 
-func (s *Service) Save(metric models.Metrics) error {
-	m, err := s.repo.Get(metric.ID)
+func (s *Service) Save(ctx context.Context, metric models.Metrics) error {
+	m, err := s.repo.Get(ctx, metric.ID)
 	if err != nil {
 		if errors.Is(err, ErrMetricsNotFound) {
-			return xerrors.WithStack(s.repo.Save(metric))
+			return xerrors.WithStack(s.repo.Save(ctx, metric))
 		}
 		return xerrors.WithStack(err)
 	}
 	switch metric.MType {
 	case models.Gauge:
-		return xerrors.WithStack(s.repo.Save(metric))
+		return xerrors.WithStack(s.repo.Save(ctx, metric))
 	case models.Counter:
-		return xerrors.WithStack(s.repo.Save(NewCounterMetric(metric.ID, *m.Delta+*metric.Delta)))
+		return xerrors.WithStack(s.repo.Save(ctx, NewCounterMetric(metric.ID, *m.Delta+*metric.Delta)))
 	default:
 		return errors.Join(errUpdateMetrics, fmt.Errorf("unknown metrics type %q", metric.MType))
 	}
 }
 
-func (s *Service) Get(id string) (models.Metrics, error) {
-	metrics, err := s.repo.Get(id)
+func (s *Service) Get(ctx context.Context, id string) (models.Metrics, error) {
+	metrics, err := s.repo.Get(ctx, id)
 	if err != nil {
 		return models.Metrics{}, xerrors.WithStack(err)
 	}
 	return metrics, nil
 }
 
-func (s *Service) GetAll() ([]models.Metrics, error) {
-	metrics, err := s.repo.GetAll()
+func (s *Service) GetAll(ctx context.Context) ([]models.Metrics, error) {
+	metrics, err := s.repo.GetAll(ctx)
 	if err != nil {
 		return nil, xerrors.WithStack(err)
 	}
