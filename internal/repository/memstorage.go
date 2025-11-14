@@ -1,15 +1,11 @@
 package repository
 
 import (
-	"errors"
 	"maps"
 	"slices"
 
 	models "github.com/ttl256/metrics/internal/model"
-)
-
-var (
-	ErrMetricsNotFound = errors.New("requested metrics not found")
+	"github.com/ttl256/metrics/internal/service"
 )
 
 type MemStorage struct {
@@ -22,19 +18,19 @@ func NewMemStorage() *MemStorage {
 	}
 }
 
-func (m MemStorage) Save(metric models.Metrics) error {
+func (m *MemStorage) Save(metric models.Metrics) error {
 	m.metrics[metric.ID] = metric
 	return nil
 }
 
-func (m MemStorage) Get(id string) (models.Metrics, error) {
+func (m *MemStorage) Get(id string) (models.Metrics, error) {
 	v, ok := m.metrics[id]
 	if !ok {
-		return models.Metrics{}, ErrMetricsNotFound
+		return models.Metrics{}, service.ErrMetricsNotFound
 	}
 	return v, nil
 }
 
-func (m MemStorage) GetAll() ([]models.Metrics, error) {
+func (m *MemStorage) GetAll() ([]models.Metrics, error) {
 	return slices.Collect(maps.Values(m.metrics)), nil
 }

@@ -7,7 +7,6 @@ import (
 	xerrors "github.com/pkg/errors"
 
 	models "github.com/ttl256/metrics/internal/model"
-	"github.com/ttl256/metrics/internal/repository"
 )
 
 type MetricsRepository interface {
@@ -44,7 +43,7 @@ func NewService(repo MetricsRepository) *Service {
 func (s *Service) Save(metric models.Metrics) error {
 	m, err := s.repo.Get(metric.ID)
 	if err != nil {
-		if errors.Is(err, repository.ErrMetricsNotFound) {
+		if errors.Is(err, ErrMetricsNotFound) {
 			return xerrors.WithStack(s.repo.Save(metric))
 		}
 		return xerrors.WithStack(err)
@@ -62,9 +61,6 @@ func (s *Service) Save(metric models.Metrics) error {
 func (s *Service) Get(id string) (models.Metrics, error) {
 	metrics, err := s.repo.Get(id)
 	if err != nil {
-		if errors.Is(err, repository.ErrMetricsNotFound) {
-			return models.Metrics{}, ErrMetricsNotFound
-		}
 		return models.Metrics{}, xerrors.WithStack(err)
 	}
 	return metrics, nil

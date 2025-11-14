@@ -1,15 +1,17 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/ttl256/metrics/internal/config"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/httplog/v3"
 	models "github.com/ttl256/metrics/internal/model"
 	"github.com/ttl256/metrics/internal/service"
 )
@@ -20,72 +22,98 @@ var (
 	ErrInvalidMetricsName  = errors.New("invalid metrics name")
 )
 
-type App struct {
-	config  *config.Application
-	service *service.Service
+type MetricsService interface {
+	Save(models.Metrics) error
+	Get(string) (models.Metrics, error)
+	GetAll() ([]models.Metrics, error)
 }
 
-func NewApp(cfg *config.Application, s *service.Service) *App {
-	return &App{
-		config:  cfg,
-		service: s,
+type HTTPHandler struct {
+	svc MetricsService
+}
+
+func NewHTTPHandler(svc MetricsService) *HTTPHandler {
+	return &HTTPHandler{
+		svc: svc,
 	}
 }
 
-func (a App) Run() error {
-	server := &http.Server{
-		Addr:         a.config.Address,
-		Handler:      a.GetRouter(),
-		IdleTimeout:  time.Minute,
-		ReadTimeout:  10 * time.Second, //nolint: mnd //fine
-		WriteTimeout: 30 * time.Second, //nolint: mnd //fine
-	}
-
-	if err := server.ListenAndServe(); err != nil {
-		return fmt.Errorf("serving HTTP: %w", err)
-	}
-	return nil
-}
-
-func (a App) GetRouter() *chi.Mux {
+func (h *HTTPHandler) Routes() *chi.Mux {
+	const compressionLevel = 5
 	r := chi.NewRouter()
-	r.Get("/healthz", a.HealthHandler)
-	r.Get("/value/{type}/{name}", a.GetHandler)
-	r.Get("/all", a.GetAllHandler)
-	r.Post("/update/{type}/{name}/{value}", a.UpdateHandler)
+	log := slog.Default()
+	r.Use(httplog.RequestLogger(log, nil))
+	r.Use(middleware.Compress(compressionLevel, "text/html", "application/json"))
+	r.Use(gzipMiddleware)
+	r.Get("/healthz", h.HealthHandler)
+	r.Get("/value/{type}/{name}", h.GetHandler)
+	r.Get("/", h.GetAllHandler)
+	r.Get("/all", h.GetAllHandler)
+	r.Post("/update/{type}/{name}/{value}", h.UpdateHandler)
+	r.Post("/update/", h.UpdateHandlerJSON)
+	r.Post("/value/", h.GetHandlerJSON)
 
 	return r
 }
 
-func (a App) UpdateHandler(w http.ResponseWriter, r *http.Request) {
+func (h *HTTPHandler) UpdateHandler(w http.ResponseWriter, r *http.Request) {
 	metrics, err := newMetrics(r.PathValue("type"), r.PathValue("name"), r.PathValue("value"))
 	if err != nil {
-		// TODO: log error
+		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	if err = a.service.Save(metrics); err != nil {
-		// TODO: log error
+	if err = h.svc.Save(metrics); err != nil {
+		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
+	w.WriteHeader(http.StatusOK)
 }
 
-func (a App) GetHandler(w http.ResponseWriter, r *http.Request) {
+func (h *HTTPHandler) UpdateHandlerJSON(w http.ResponseWriter, r *http.Request) {
+	var metrics models.Metrics
+	if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
+		slog.Default().Error("", slog.Any("error", err))
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	switch metrics.MType {
+	case models.Gauge:
+		if metrics.Value == nil {
+			slog.Default().Error("", slog.Any("error", errors.New("value is not set for gauge metric")))
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+	case models.Counter:
+		if metrics.Delta == nil {
+			slog.Default().Error("", slog.Any("error", errors.New("delta is not set for counter metric")))
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+	}
+	if err := h.svc.Save(metrics); err != nil {
+		slog.Default().Error("", slog.Any("error", err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *HTTPHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
 	metricsID := r.PathValue("name")
 	if metricsID == "" {
-		// TODO: log error
 		http.Error(w, "empty id", http.StatusBadRequest)
 		return
 	}
-	metrics, err := a.service.Get(metricsID)
+	metrics, err := h.svc.Get(metricsID)
 	if err != nil {
 		if errors.Is(err, service.ErrMetricsNotFound) {
-			// TODO: log error
+			slog.Default().Error("", slog.Any("error", err))
 			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 			return
 		}
-		// TODO: log error
+		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
@@ -96,29 +124,65 @@ func (a App) GetHandler(w http.ResponseWriter, r *http.Request) {
 	case models.Counter:
 		value = strconv.FormatInt(*metrics.Delta, 10)
 	}
+	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(value))
 }
 
-func (a App) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
-	metrics, err := a.service.GetAll()
+func (h *HTTPHandler) GetHandlerJSON(w http.ResponseWriter, r *http.Request) {
+	var metricsReq models.Metrics
+	if err := json.NewDecoder(r.Body).Decode(&metricsReq); err != nil {
+		slog.Default().Error("", slog.Any("error", err))
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	metrics, err := h.svc.Get(metricsReq.ID)
 	if err != nil {
-		// TODO: log error
+		if errors.Is(err, service.ErrMetricsNotFound) {
+			slog.Default().Error("", slog.Any("error", err))
+			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		}
+		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	data, err := json.Marshal(metrics)
 	if err != nil {
-		// TODO: log error
+		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("content-type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }
 
-func (a App) HealthHandler(w http.ResponseWriter, _ *http.Request) {
+func (h *HTTPHandler) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
+	metrics, err := h.svc.GetAll()
+	if err != nil {
+		slog.Default().Error("", slog.Any("error", err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	data, err := json.Marshal(metrics)
+	if err != nil {
+		slog.Default().Error("", slog.Any("error", err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("content-type", "text/html")
+	w.WriteHeader(http.StatusOK)
+	var buf bytes.Buffer
+	buf.WriteString("<html>")
+	buf.Write(data)
+	buf.WriteString("</html>")
+	_, _ = w.Write(buf.Bytes())
+}
+
+func (h *HTTPHandler) HealthHandler(w http.ResponseWriter, _ *http.Request) {
 	data, err := json.Marshal(HealthResponse{Status: `OK`})
 	if err != nil {
-		// TODO: log error
+		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}

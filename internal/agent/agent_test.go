@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	models "github.com/ttl256/metrics/internal/model"
+	"resty.dev/v3"
 )
 
 func TestSendMetrics(t *testing.T) {
@@ -18,14 +19,13 @@ func TestSendMetrics(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /update/{type}/{name}/{value}", counterHandler)
+	mux.HandleFunc("POST /update/", counterHandler)
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
-	serverURL := server.URL
 
-	client := &http.Client{}
 	v := 13.37
+	client := resty.New().SetBaseURL(server.URL)
 	m := Metrics{
 		metrics: models.Metrics{
 			ID:    "test",
@@ -37,7 +37,7 @@ func TestSendMetrics(t *testing.T) {
 		client: client,
 	}
 	ctx := context.Background()
-	err := m.Send(ctx, serverURL)
+	err := m.Send(ctx, "update/")
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)

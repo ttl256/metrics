@@ -1,46 +1,80 @@
 package agent
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
-	"io"
+	"log/slog"
 	"math/rand/v2"
-	"net/http"
-	neturl "net/url"
 	"runtime"
-	"strconv"
-	"strings"
 	"time"
 
+	"github.com/cenkalti/backoff/v5"
 	xerrors "github.com/pkg/errors"
+	"resty.dev/v3"
 
-	"github.com/ttl256/metrics/internal/config"
 	models "github.com/ttl256/metrics/internal/model"
 )
 
 type Metrics struct {
 	metrics models.Metrics
-	client  *http.Client
+	client  *resty.Client
 }
 
-func (m *Metrics) Send(ctx context.Context, url string) error {
-	path, err := neturl.JoinPath(url, "update", metricsToPath(m.metrics))
+func (m *Metrics) Send(ctx context.Context, path string) error {
+	const maxRetryTime = 1 * time.Minute
+	_, err := backoff.Retry(
+		ctx, func() (bool, error) {
+			return true, m.send(ctx, path)
+		},
+		backoff.WithMaxElapsedTime(maxRetryTime),
+	)
+	return xerrors.WithStack(err)
+}
+
+func (m *Metrics) send(ctx context.Context, path string) error {
+	log := slog.Default().With(
+		slog.String("uri", path),
+		slog.Any("metrics", m.metrics),
+	)
+	log.DebugContext(ctx, "sending request")
+	body, err := json.Marshal(m.metrics)
 	if err != nil {
+		return fmt.Errorf("marshaling: %w", err)
+	}
+	var buf bytes.Buffer
+	gzWriter := gzip.NewWriter(&buf)
+	_, err = gzWriter.Write(body)
+	if err != nil {
+		return fmt.Errorf("compressing: %w", err)
+	}
+	err = gzWriter.Close()
+	if err != nil {
+		return fmt.Errorf("compressing: %w", err)
+	}
+	resp, err := m.client.R().
+		SetContentType("application/json").
+		SetHeader("Content-Encoding", "gzip").
+		SetHeader("Accept-Encoding", "gzip").
+		SetContext(ctx).
+		SetBody(buf.Bytes()).
+		Post(path)
+	if err != nil {
+		log.ErrorContext(ctx, "getting response", "error", xerrors.WithStack(err))
 		return xerrors.WithStack(err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, path, nil)
-	if err != nil {
-		return xerrors.WithStack(err)
+	if !resp.IsSuccess() {
+		log.ErrorContext(
+			ctx,
+			"unsuccessful response",
+			slog.Int("code", resp.StatusCode()),
+			slog.Any("error", resp.Err),
+		)
+		return fmt.Errorf("unexpected status code %d", resp.StatusCode())
 	}
-	resp, err := m.client.Do(req)
-	if err != nil {
-		return xerrors.WithStack(err)
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code %d", resp.StatusCode)
-	}
+	log.DebugContext(ctx, "response ok")
 	return nil
 }
 
@@ -52,12 +86,16 @@ type Agent struct {
 	counter        int64
 }
 
-func NewAgent(cfg *config.Agent) *Agent {
+func NewAgent(
+	endpoint string,
+	pollInterval time.Duration,
+	reportInterval time.Duration,
+) *Agent {
 	return &Agent{
-		url:            cfg.Endpoint,
+		url:            endpoint,
 		metrics:        nil,
-		pollInterval:   cfg.PollInterval,
-		reportInterval: cfg.ReportInterval,
+		pollInterval:   pollInterval,
+		reportInterval: reportInterval,
 		counter:        0,
 	}
 }
@@ -65,7 +103,14 @@ func NewAgent(cfg *config.Agent) *Agent {
 func (a *Agent) Run(ctx context.Context) error {
 	pollTicker := time.NewTicker(a.pollInterval)
 	reportTicker := time.NewTicker(a.reportInterval)
-	client := &http.Client{}
+	log := slog.Default()
+	log.InfoContext(
+		ctx,
+		"starting agent",
+		slog.Duration("poll_interval", a.pollInterval),
+		slog.Duration("report_interval", a.reportInterval),
+	)
+	client := resty.New().SetBaseURL(a.url)
 	for {
 		select {
 		case <-pollTicker.C:
@@ -83,12 +128,12 @@ func (a *Agent) Run(ctx context.Context) error {
 					metrics: m,
 					client:  client,
 				}
-				err := mm.Send(ctx, a.url)
+				err := mm.Send(ctx, "update/")
 				if err != nil {
 					return err
 				}
-				a.counter = 0
 			}
+			a.counter = 0
 		case <-ctx.Done():
 			return xerrors.WithStack(ctx.Err())
 		}
@@ -98,6 +143,8 @@ func (a *Agent) Run(ctx context.Context) error {
 func (a *Agent) BuildRuntimeMetrics() []models.Metrics {
 	m := &runtime.MemStats{} //nolint: exhaustruct //let me be
 	runtime.ReadMemStats(m)
+	log := slog.Default()
+	log.Debug("build runtime metrics")
 	a.counter++
 	return []models.Metrics{
 		NewGaugeMetric("Alloc", float64(m.Alloc)),
@@ -129,17 +176,6 @@ func (a *Agent) BuildRuntimeMetrics() []models.Metrics {
 		NewGaugeMetric("Sys", float64(m.Sys)),
 		NewGaugeMetric("TotalAlloc", float64(m.TotalAlloc)),
 		NewGaugeMetric("RandomValue", rand.Float64()), //nolint: gosec //let me be
-	}
-}
-
-func metricsToPath(metrics models.Metrics) string {
-	switch metrics.MType {
-	case models.Gauge:
-		return strings.Join([]string{metrics.MType, metrics.ID, strconv.FormatFloat(*metrics.Value, 'f', -1, 64)}, "/")
-	case models.Counter:
-		return strings.Join([]string{metrics.MType, metrics.ID, strconv.FormatInt(*metrics.Delta, 10)}, "/")
-	default:
-		return ""
 	}
 }
 
