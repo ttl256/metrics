@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -75,6 +76,10 @@ func (s *FileStorage) Get(id string) (models.Metrics, error) {
 
 func (s *FileStorage) GetAll() ([]models.Metrics, error) {
 	return slices.Collect(maps.Values(s.metrics)), nil
+}
+
+func (s *FileStorage) RepoPing(_ context.Context) error {
+	return nil
 }
 
 func (s *FileStorage) Close() error {

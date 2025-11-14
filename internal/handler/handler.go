@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +27,7 @@ type MetricsService interface {
 	Save(models.Metrics) error
 	Get(string) (models.Metrics, error)
 	GetAll() ([]models.Metrics, error)
+	RepoPing(context.Context) error
 }
 
 type HTTPHandler struct {
@@ -52,6 +54,7 @@ func (h *HTTPHandler) Routes() *chi.Mux {
 	r.Post("/update/{type}/{name}/{value}", h.UpdateHandler)
 	r.Post("/update/", h.UpdateHandlerJSON)
 	r.Post("/value/", h.GetHandlerJSON)
+	r.Get("/ping", h.Ping)
 
 	return r
 }
@@ -152,7 +155,7 @@ func (h *HTTPHandler) GetHandlerJSON(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("content-type", "application/json")
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }
@@ -170,7 +173,7 @@ func (h *HTTPHandler) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("content-type", "text/html")
+	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(http.StatusOK)
 	var buf bytes.Buffer
 	buf.WriteString("<html>")
@@ -186,9 +189,18 @@ func (h *HTTPHandler) HealthHandler(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("content-type", "application/json")
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
+}
+
+func (h *HTTPHandler) Ping(w http.ResponseWriter, r *http.Request) {
+	err := h.svc.RepoPing(r.Context())
+	if err != nil {
+		http.Error(w, "repository is unavailable", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func newMetrics(_type, name, value string) (models.Metrics, error) {

@@ -22,6 +22,7 @@ func TestServerConfig(t *testing.T) {
 		t.Setenv("STORE_INTERVAL", "123")
 		t.Setenv("FILE_STORAGE_PATH", "metrics.json")
 		t.Setenv("RESTORE", "true")
+		t.Setenv("DATABASE_DSN", "my_dsn")
 		cfg := config.DefaultServer()
 		cfg.ApplyEnv()
 		want := &config.Server{
@@ -29,6 +30,7 @@ func TestServerConfig(t *testing.T) {
 			StoreInterval:   123 * time.Second,
 			FileStoragePath: "metrics.json",
 			Restore:         true,
+			DSN:             "my_dsn",
 		}
 		assert.Equal(t, want, cfg)
 	})
@@ -42,6 +44,7 @@ func TestServerConfig(t *testing.T) {
 				"-i=123s",
 				"-f=metrics.json",
 				"-r=true",
+				"-d=my_dsn",
 			},
 		)
 		want := &config.Server{
@@ -49,6 +52,7 @@ func TestServerConfig(t *testing.T) {
 			StoreInterval:   123 * time.Second,
 			FileStoragePath: "metrics.json",
 			Restore:         true,
+			DSN:             "my_dsn",
 		}
 		assert.Equal(t, want, cfg)
 	})

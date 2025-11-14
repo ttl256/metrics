@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -13,6 +14,7 @@ type MetricsRepository interface {
 	Save(models.Metrics) error
 	Get(string) (models.Metrics, error)
 	GetAll() ([]models.Metrics, error)
+	RepoPing(context.Context) error
 }
 
 var (
@@ -72,4 +74,8 @@ func (s *Service) GetAll() ([]models.Metrics, error) {
 		return nil, xerrors.WithStack(err)
 	}
 	return metrics, nil
+}
+
+func (s *Service) RepoPing(ctx context.Context) error {
+	return xerrors.WithStack(s.repo.RepoPing(ctx))
 }

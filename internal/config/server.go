@@ -14,6 +14,7 @@ type Server struct {
 	StoreInterval   time.Duration
 	FileStoragePath string
 	Restore         bool
+	DSN             string
 }
 
 func DefaultServer() *Server {
@@ -22,6 +23,7 @@ func DefaultServer() *Server {
 		StoreInterval:   300 * time.Second, //nolint: mnd //fine
 		FileStoragePath: filepath.Join(os.TempDir(), "metrics_state.json"),
 		Restore:         false,
+		DSN:             "",
 	}
 }
 
@@ -46,6 +48,9 @@ func (a *Server) ApplyEnv() error {
 		}
 		a.Restore = restore
 	}
+	if v, ok := os.LookupEnv("DATABASE_DSN"); ok {
+		a.DSN = v
+	}
 	return nil
 }
 
@@ -54,6 +59,7 @@ func (a *Server) ApplyFlags(fs *flag.FlagSet, args []string) error {
 	storeIntervalFlag := fs.Duration("i", a.StoreInterval, "store interval")
 	fileStoragePathFlag := fs.String("f", a.FileStoragePath, "file to store metrics")
 	restoreFlag := fs.Bool("r", a.Restore, "read metrics from a file on startup")
+	dsnFlag := fs.String("d", a.DSN, "database DSN")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parsing command line flags: %w", err)
 	}
@@ -61,6 +67,7 @@ func (a *Server) ApplyFlags(fs *flag.FlagSet, args []string) error {
 	a.StoreInterval = *storeIntervalFlag
 	a.FileStoragePath = *fileStoragePathFlag
 	a.Restore = *restoreFlag
+	a.DSN = *dsnFlag
 
 	return nil
 }

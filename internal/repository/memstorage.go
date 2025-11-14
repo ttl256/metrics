@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"maps"
 	"slices"
 
@@ -33,4 +34,8 @@ func (m *MemStorage) Get(id string) (models.Metrics, error) {
 
 func (m *MemStorage) GetAll() ([]models.Metrics, error) {
 	return slices.Collect(maps.Values(m.metrics)), nil
+}
+
+func (m *MemStorage) RepoPing(_ context.Context) error {
+	return nil
 }

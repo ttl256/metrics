@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
+
 	"github.com/ttl256/metrics/internal/config"
 	"github.com/ttl256/metrics/internal/handler"
 	"github.com/ttl256/metrics/internal/logger"
@@ -33,6 +35,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("setting logger: %w", err)
 	}
+	log := slog.Default()
 	cfg := config.DefaultServer()
 	fs := flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 	err = cfg.ApplyFlags(fs, os.Args[1:])
@@ -46,11 +49,28 @@ func run() error {
 		return fmt.Errorf("initiating app: %w", err)
 	}
 
-	repo, err := repository.NewFileStorage(cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore)
-	if err != nil {
-		return fmt.Errorf("initiating repo: %w", err)
+	ctx := context.Background()
+
+	var repo service.MetricsRepository
+	if cfg.DSN != "" {
+		repo, err = repository.NewDBStorage(cfg.DSN)
+		if err != nil {
+			return fmt.Errorf("opening db: %w", err)
+		}
+		const repoPingTimeout = 30 * time.Second
+		pingCtx, cancel := context.WithTimeout(ctx, repoPingTimeout)
+		defer cancel()
+		err = repo.RepoPing(pingCtx)
+		if err != nil {
+			return fmt.Errorf("pinging repo: %w", err)
+		}
+	} else {
+		repo, err = repository.NewFileStorage(cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore)
+		if err != nil {
+			return fmt.Errorf("initiating file storage: %w", err)
+		}
 	}
-	defer repo.Close()
+
 	svc := service.NewService(repo)
 	h := handler.NewHTTPHandler(svc)
 
@@ -62,9 +82,6 @@ func run() error {
 		WriteTimeout: 30 * time.Second, //nolint: mnd //fine
 	}
 
-	log := slog.Default()
-
-	ctx := context.Background()
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -80,8 +97,8 @@ func run() error {
 	g.Go(func() error {
 		<-ctx.Done()
 		log.Info("received shutdown signal")
-		shutdownCtx, cancel := context.WithTimeout(ctx, shutdownDuration)
-		defer cancel()
+		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, shutdownDuration)
+		defer shutdownCancel()
 		if err = srv.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("shutting down server: %w", err)
 		}
