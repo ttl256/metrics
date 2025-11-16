@@ -19,7 +19,8 @@ import (
 )
 
 type Metrics struct {
-	metrics models.Metrics
+	// metrics models.Metrics
+	metrics []models.Metrics
 	client  *resty.Client
 }
 
@@ -123,16 +124,24 @@ func (a *Agent) Run(ctx context.Context) error {
 				Hash:  "",
 			})
 		case <-reportTicker.C:
-			for _, m := range a.metrics {
-				mm := &Metrics{
-					metrics: m,
-					client:  client,
-				}
-				err := mm.Send(ctx, "update/")
-				if err != nil {
-					return err
-				}
+			metrics := &Metrics{
+				metrics: a.metrics,
+				client:  client,
 			}
+			err := metrics.Send(ctx, "updates/")
+			if err != nil {
+				return err
+			}
+			// for _, m := range a.metrics {
+			// 	mm := &Metrics{
+			// 		metrics: m,
+			// 		client:  client,
+			// 	}
+			// 	err := mm.Send(ctx, "update/")
+			// 	if err != nil {
+			// 		return err
+			// 	}
+			// }
 			a.counter = 0
 		case <-ctx.Done():
 			return xerrors.WithStack(ctx.Err())

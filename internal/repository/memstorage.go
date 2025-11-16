@@ -24,6 +24,13 @@ func (m *MemStorage) Save(_ context.Context, metric models.Metrics) error {
 	return nil
 }
 
+func (m *MemStorage) SaveMany(_ context.Context, metrics []models.Metrics) error {
+	for _, metric := range metrics {
+		m.metrics[metric.ID] = metric
+	}
+	return nil
+}
+
 func (m *MemStorage) Get(_ context.Context, id string) (models.Metrics, error) {
 	v, ok := m.metrics[id]
 	if !ok {

@@ -54,10 +54,12 @@ func run() error {
 	var repo service.MetricsRepository
 	if cfg.DSN != "" { //nolint: nestif //let me be
 		var repoDB *repository.DBStorage
-		repoDB, err = repository.NewDBStorage(cfg.DSN)
+		repoDB, err = repository.NewDBStorage(ctx, cfg.DSN)
 		if err != nil {
 			return fmt.Errorf("opening db: %w", err)
 		}
+		defer repoDB.Close()
+
 		const repoPingTimeout = 30 * time.Second
 		pingCtx, cancel := context.WithTimeout(ctx, repoPingTimeout)
 		defer cancel()

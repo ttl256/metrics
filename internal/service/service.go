@@ -12,6 +12,7 @@ import (
 
 type MetricsRepository interface {
 	Save(context.Context, models.Metrics) error
+	SaveMany(context.Context, []models.Metrics) error
 	Get(context.Context, string) (models.Metrics, error)
 	GetAll(context.Context) ([]models.Metrics, error)
 	RepoPing(context.Context) error
@@ -58,6 +59,35 @@ func (s *Service) Save(ctx context.Context, metric models.Metrics) error {
 	default:
 		return errors.Join(errUpdateMetrics, fmt.Errorf("unknown metrics type %q", metric.MType))
 	}
+}
+
+func (s *Service) SaveMany(ctx context.Context, metrics []models.Metrics) error { //nolint: gocognit //TODO
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Gauge:
+			err := s.repo.Save(ctx, metric)
+			if err != nil {
+				return errors.Join(errUpdateMetrics, err)
+			}
+		case models.Counter:
+			m, err := s.repo.Get(ctx, metric.ID)
+			if err != nil {
+				if errors.Is(err, ErrMetricsNotFound) {
+					if err = s.repo.Save(ctx, metric); err != nil {
+						return errors.Join(errUpdateMetrics, err)
+					}
+					continue
+				}
+				return fmt.Errorf("getting metrics %q: %w", metric.ID, err)
+			}
+			if err = s.repo.Save(ctx, NewCounterMetric(m.ID, *m.Delta+*metric.Delta)); err != nil {
+				return errors.Join(errUpdateMetrics, err)
+			}
+		default:
+			return errors.Join(errUpdateMetrics, fmt.Errorf("unknown metrics type %q", metric.MType))
+		}
+	}
+	return nil
 }
 
 func (s *Service) Get(ctx context.Context, id string) (models.Metrics, error) {

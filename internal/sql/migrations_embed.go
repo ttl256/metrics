@@ -1,4 +1,4 @@
-package migrations
+package sql
 
 import "embed"
 

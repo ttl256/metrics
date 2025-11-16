@@ -25,6 +25,7 @@ var (
 
 type MetricsService interface {
 	Save(context.Context, models.Metrics) error
+	SaveMany(context.Context, []models.Metrics) error
 	Get(context.Context, string) (models.Metrics, error)
 	GetAll(context.Context) ([]models.Metrics, error)
 	RepoPing(context.Context) error
@@ -53,6 +54,7 @@ func (h *HTTPHandler) Routes() *chi.Mux {
 	r.Get("/all", h.GetAllHandler)
 	r.Post("/update/{type}/{name}/{value}", h.UpdateHandler)
 	r.Post("/update/", h.UpdateHandlerJSON)
+	r.Post("/updates/", h.UpdateManyHandlerJSON)
 	r.Post("/value/", h.GetHandlerJSON)
 	r.Get("/ping", h.Ping)
 
@@ -96,6 +98,37 @@ func (h *HTTPHandler) UpdateHandlerJSON(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	if err := h.svc.Save(r.Context(), metrics); err != nil {
+		slog.Default().Error("", slog.Any("error", err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *HTTPHandler) UpdateManyHandlerJSON(w http.ResponseWriter, r *http.Request) {
+	var metrics []models.Metrics
+	if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
+		slog.Default().Error("", slog.Any("error", err))
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Gauge:
+			if metric.Value == nil {
+				slog.Default().Error("", slog.Any("error", errors.New("value is not set for gauge metric")))
+				http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+		case models.Counter:
+			if metric.Delta == nil {
+				slog.Default().Error("", slog.Any("error", errors.New("delta is not set for counter metric")))
+				http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+		}
+	}
+	if err := h.svc.SaveMany(r.Context(), metrics); err != nil {
 		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return

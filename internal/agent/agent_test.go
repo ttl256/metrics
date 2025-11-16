@@ -19,7 +19,7 @@ func TestSendMetrics(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /update/", counterHandler)
+	mux.HandleFunc("POST /updates/", counterHandler)
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -27,17 +27,18 @@ func TestSendMetrics(t *testing.T) {
 	v := 13.37
 	client := resty.New().SetBaseURL(server.URL)
 	m := Metrics{
-		metrics: models.Metrics{
-			ID:    "test",
-			MType: models.Gauge,
-			Delta: nil,
-			Value: &v,
-			Hash:  "",
-		},
+		metrics: []models.Metrics{
+			{
+				ID:    "test",
+				MType: models.Gauge,
+				Delta: nil,
+				Value: &v,
+				Hash:  "",
+			}},
 		client: client,
 	}
 	ctx := context.Background()
-	err := m.Send(ctx, "update/")
+	err := m.Send(ctx, "updates/")
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)

@@ -66,6 +66,25 @@ func (s *FileStorage) Save(ctx context.Context, metric models.Metrics) error {
 	return nil
 }
 
+func (s *FileStorage) SaveMany(ctx context.Context, metrics []models.Metrics) error {
+	for _, metric := range metrics {
+		s.metrics[metric.ID] = metric
+	}
+	if err := s.file.Truncate(0); err != nil {
+		return xerrors.WithStack(err)
+	}
+	if _, err := s.file.Seek(0, 0); err != nil {
+		return xerrors.WithStack(err)
+	}
+	enc := json.NewEncoder(s.file)
+	enc.SetIndent("", "  ")
+	metrics, _ = s.GetAll(ctx)
+	if err := enc.Encode(metrics); err != nil {
+		return xerrors.WithStack(err)
+	}
+	return nil
+}
+
 func (s *FileStorage) Get(_ context.Context, id string) (models.Metrics, error) {
 	v, ok := s.metrics[id]
 	if !ok {
