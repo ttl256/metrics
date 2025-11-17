@@ -78,8 +78,11 @@ func (s *FileStorage) SaveMany(ctx context.Context, metrics []models.Metrics) er
 	}
 	enc := json.NewEncoder(s.file)
 	enc.SetIndent("", "  ")
-	metrics, _ = s.GetAll(ctx)
-	if err := enc.Encode(metrics); err != nil {
+	metrics, err := s.GetAll(ctx)
+	if err != nil {
+		return fmt.Errorf("getting metrics: %w", err)
+	}
+	if err = enc.Encode(metrics); err != nil {
 		return xerrors.WithStack(err)
 	}
 	return nil

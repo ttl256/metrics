@@ -26,7 +26,7 @@ audit/lint:
 .PHONY: install-golangci-lint
 install-golangci-lint:
 	curl -sSfL "https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh" | sh -s -- -b $(GOTOOLS_DIR) $(GOLANGCILINT_VERSION)
-	mv $(GOTOOLS_DIR)/golangci-lint{,-v2}
+	ln $(GOTOOLS_DIR)/golangci-lint{,-v2}
 
 .PHONY: run
 run:
@@ -34,5 +34,5 @@ run:
 
 .PHONY: build
 build:
-	$(GOCMD) build -C ./cmd/server
-	$(GOCMD) build -C ./cmd/agent
+	CGO_ENABLED=0 $(GOCMD) build -C ./cmd/server -a -installsuffix cgo_off
+	CGO_ENABLED=0 $(GOCMD) build -C ./cmd/agent -a -installsuffix cgo_off

@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/cenkalti/backoff/v5"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/ttl256/metrics/database"
@@ -19,22 +21,85 @@ import (
 	migrations "github.com/ttl256/metrics/internal/sql"
 )
 
-type DBStorage struct {
-	db      *pgxpool.Pool
-	queries *database.Queries
-	logger  *slog.Logger
+type DBOptions struct {
+	DSN                   string
+	ApplicationName       string
+	ConnectTimeout        time.Duration
+	StatementTimeout      time.Duration
+	LockTimeout           time.Duration
+	IdleInTxTimeout       time.Duration
+	PoolMaxConns          int32
+	PoolMinConns          int32
+	MaxConnLifetime       time.Duration
+	MaxConnLifetimeJitter time.Duration
+	MaxConnIdleTime       time.Duration
+	HealthCheckPeriod     time.Duration
 }
 
-func NewDBStorage(ctx context.Context, dsn string) (*DBStorage, error) {
-	pool, err := pgxpool.New(ctx, dsn)
+type DBStorage struct {
+	db              *pgxpool.Pool
+	queries         *database.Queries
+	logger          *slog.Logger
+	errorClassifier *PostgresErrorClassifier
+}
+
+func NewDBStorage(ctx context.Context, opts DBOptions) (*DBStorage, error) {
+	if opts.DSN == "" {
+		return nil, errors.New("DSN must be provided")
+	}
+	cfg, err := pgxpool.ParseConfig(opts.DSN)
+	if err != nil {
+		return nil, fmt.Errorf("parsing DSN: %w", err)
+	}
+	if opts.PoolMaxConns > 0 {
+		cfg.MaxConns = opts.PoolMaxConns
+	}
+	if opts.PoolMinConns > 0 {
+		cfg.MinConns = opts.PoolMinConns
+	}
+	if opts.MaxConnLifetime > 0 {
+		cfg.MaxConnLifetime = opts.MaxConnLifetime
+	}
+	if opts.MaxConnLifetimeJitter > 0 {
+		cfg.MaxConnLifetimeJitter = opts.MaxConnLifetimeJitter
+	}
+	if opts.MaxConnIdleTime > 0 {
+		cfg.MaxConnIdleTime = opts.MaxConnIdleTime
+	}
+	if opts.HealthCheckPeriod > 0 {
+		cfg.HealthCheckPeriod = opts.HealthCheckPeriod
+	}
+	if opts.ConnectTimeout > 0 {
+		cfg.ConnConfig.Config.ConnectTimeout = opts.ConnectTimeout
+	}
+
+	runtimeParams := cfg.ConnConfig.Config.RuntimeParams
+	if runtimeParams == nil {
+		runtimeParams = make(map[string]string)
+	}
+	if opts.ApplicationName != "" {
+		runtimeParams["application_name"] = opts.ApplicationName
+	}
+	if opts.StatementTimeout > 0 {
+		runtimeParams["statement_timeout"] = opts.StatementTimeout.String()
+	}
+	if opts.LockTimeout > 0 {
+		runtimeParams["lock_timeout"] = opts.LockTimeout.String()
+	}
+	if opts.IdleInTxTimeout > 0 {
+		runtimeParams["idle_in_transaction_session_timeout"] = opts.IdleInTxTimeout.String()
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("opening db: %w", err)
 	}
 	q := database.New(pool)
 	return &DBStorage{
-		db:      pool,
-		queries: q,
-		logger:  slog.Default(),
+		db:              pool,
+		queries:         q,
+		logger:          slog.Default(),
+		errorClassifier: NewPostgresErrorClassifier(),
 	}, nil
 }
 
@@ -42,7 +107,24 @@ func (m *DBStorage) Close() {
 	m.db.Close()
 }
 
-func (m *DBStorage) Save(ctx context.Context, metric models.Metrics) (err error) {
+func (m *DBStorage) Save(ctx context.Context, metric models.Metrics) error {
+	_, err := backoff.Retry(ctx, func() (struct{}, error) {
+		err := m.save(ctx, metric)
+		if err != nil {
+			if m.errorClassifier.Classify(err) == Permanent {
+				return struct{}{}, backoff.Permanent(err)
+			}
+			return struct{}{}, err
+		}
+		return struct{}{}, nil
+	})
+	if err != nil {
+		return fmt.Errorf("saving metric %q: %w", metric.ID, err)
+	}
+	return nil
+}
+
+func (m *DBStorage) save(ctx context.Context, metric models.Metrics) (err error) {
 	tx, err := m.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -65,7 +147,24 @@ func (m *DBStorage) Save(ctx context.Context, metric models.Metrics) (err error)
 	return nil
 }
 
-func (m *DBStorage) SaveMany(ctx context.Context, metrics []models.Metrics) (err error) {
+func (m *DBStorage) SaveMany(ctx context.Context, metrics []models.Metrics) error {
+	_, err := backoff.Retry(ctx, func() (struct{}, error) {
+		err := m.saveMany(ctx, metrics)
+		if err != nil {
+			if m.errorClassifier.Classify(err) == Permanent {
+				return struct{}{}, backoff.Permanent(err)
+			}
+			return struct{}{}, err
+		}
+		return struct{}{}, nil
+	})
+	if err != nil {
+		return fmt.Errorf("saving metrics %v: %w", metrics, err)
+	}
+	return nil
+}
+
+func (m *DBStorage) saveMany(ctx context.Context, metrics []models.Metrics) (err error) {
 	tx, err := m.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -91,6 +190,23 @@ func (m *DBStorage) SaveMany(ctx context.Context, metrics []models.Metrics) (err
 }
 
 func (m *DBStorage) Get(ctx context.Context, id string) (models.Metrics, error) {
+	metrics, err := backoff.Retry(ctx, func() (models.Metrics, error) {
+		metricsS, err := m.get(ctx, id)
+		if err != nil {
+			if m.errorClassifier.Classify(err) == Permanent {
+				return models.Metrics{}, backoff.Permanent(err)
+			}
+			return metricsS, err
+		}
+		return metricsS, nil
+	})
+	if err != nil {
+		return models.Metrics{}, fmt.Errorf("getting metrics %q: %w", id, err)
+	}
+	return metrics, nil
+}
+
+func (m *DBStorage) get(ctx context.Context, id string) (models.Metrics, error) {
 	repoMetric, err := m.queries.GetMetricByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -104,6 +220,23 @@ func (m *DBStorage) Get(ctx context.Context, id string) (models.Metrics, error) 
 }
 
 func (m *DBStorage) GetAll(ctx context.Context) ([]models.Metrics, error) {
+	metrics, err := backoff.Retry(ctx, func() ([]models.Metrics, error) {
+		metrics, err := m.getAll(ctx)
+		if err != nil {
+			if m.errorClassifier.Classify(err) == Permanent {
+				return nil, backoff.Permanent(err)
+			}
+			return nil, err
+		}
+		return metrics, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("getting metrics: %w", err)
+	}
+	return metrics, nil
+}
+
+func (m *DBStorage) getAll(ctx context.Context) ([]models.Metrics, error) {
 	repoMetrics, err := m.queries.GetMetrics(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting metrics: %w", err)
@@ -116,6 +249,7 @@ func (m *DBStorage) GetAll(ctx context.Context) ([]models.Metrics, error) {
 }
 
 func (m *DBStorage) RepoPing(ctx context.Context) error {
+	_ = pgerrcode.ConnectionException
 	var attempt int
 	_, err := backoff.Retry(ctx, func() (bool, error) {
 		attempt++

@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	models "github.com/ttl256/metrics/internal/model"
-	"resty.dev/v3"
 )
 
 func TestSendMetrics(t *testing.T) {
@@ -25,20 +25,16 @@ func TestSendMetrics(t *testing.T) {
 	defer server.Close()
 
 	v := 13.37
-	client := resty.New().SetBaseURL(server.URL)
-	m := Metrics{
-		metrics: []models.Metrics{
-			{
-				ID:    "test",
-				MType: models.Gauge,
-				Delta: nil,
-				Value: &v,
-				Hash:  "",
-			}},
-		client: client,
-	}
+	agent := NewAgent(server.URL, time.Duration(0), time.Duration(0))
+	agent.AddMetric(models.Metrics{
+		ID:    "test",
+		MType: models.Gauge,
+		Delta: nil,
+		Value: &v,
+		Hash:  "",
+	})
 	ctx := context.Background()
-	err := m.Send(ctx, "updates/")
+	err := agent.Send(ctx, "updates/")
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)

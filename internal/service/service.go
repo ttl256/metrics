@@ -21,6 +21,7 @@ type MetricsRepository interface {
 var (
 	errUpdateMetrics   = errors.New("cannot update metrics")
 	ErrMetricsNotFound = errors.New("requested metrics not found")
+	ErrEmptyID         = errors.New("empty id")
 )
 
 func NewCounterMetric(name string, value int64) models.Metrics {
@@ -91,6 +92,9 @@ func (s *Service) SaveMany(ctx context.Context, metrics []models.Metrics) error 
 }
 
 func (s *Service) Get(ctx context.Context, id string) (models.Metrics, error) {
+	if id == "" {
+		return models.Metrics{}, ErrEmptyID
+	}
 	metrics, err := s.repo.Get(ctx, id)
 	if err != nil {
 		return models.Metrics{}, xerrors.WithStack(err)

@@ -30,7 +30,15 @@ func TestServerConfig(t *testing.T) {
 			StoreInterval:   123 * time.Second,
 			FileStoragePath: "metrics.json",
 			Restore:         true,
-			DSN:             "my_dsn",
+			DB: config.DBConfig{
+				DSN:                    "my_dsn",
+				ApplicationName:        "",
+				ConnectTimeout:         0,
+				StatementTimeout:       0,
+				LockTimeout:            0,
+				IdleInTxSessionTimeout: 0,
+				Pool:                   config.DBPoolConfig{},
+			},
 		}
 		assert.Equal(t, want, cfg)
 	})
@@ -52,7 +60,15 @@ func TestServerConfig(t *testing.T) {
 			StoreInterval:   123 * time.Second,
 			FileStoragePath: "metrics.json",
 			Restore:         true,
-			DSN:             "my_dsn",
+			DB: config.DBConfig{
+				DSN:                    "my_dsn",
+				ApplicationName:        "",
+				ConnectTimeout:         0,
+				StatementTimeout:       0,
+				LockTimeout:            0,
+				IdleInTxSessionTimeout: 0,
+				Pool:                   config.DBPoolConfig{},
+			},
 		}
 		assert.Equal(t, want, cfg)
 	})

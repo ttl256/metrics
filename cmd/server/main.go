@@ -52,9 +52,23 @@ func run() error {
 	ctx := context.Background()
 
 	var repo service.MetricsRepository
-	if cfg.DSN != "" { //nolint: nestif //let me be
+	if cfg.DB.DSN != "" { //nolint: nestif //let me be
+		opts := repository.DBOptions{
+			DSN:                   cfg.DB.DSN,
+			ApplicationName:       cfg.DB.ApplicationName,
+			ConnectTimeout:        cfg.DB.ConnectTimeout,
+			StatementTimeout:      cfg.DB.StatementTimeout,
+			LockTimeout:           cfg.DB.LockTimeout,
+			IdleInTxTimeout:       cfg.DB.IdleInTxSessionTimeout,
+			PoolMaxConns:          cfg.DB.Pool.MaxConns,
+			PoolMinConns:          cfg.DB.Pool.MinConns,
+			MaxConnLifetime:       cfg.DB.Pool.MaxConnLifetime,
+			MaxConnLifetimeJitter: cfg.DB.Pool.MaxConnLifetimeJitter,
+			MaxConnIdleTime:       cfg.DB.Pool.MaxConnIdleTime,
+			HealthCheckPeriod:     cfg.DB.Pool.HealthCheckPeriod,
+		}
 		var repoDB *repository.DBStorage
-		repoDB, err = repository.NewDBStorage(ctx, cfg.DSN)
+		repoDB, err = repository.NewDBStorage(ctx, opts)
 		if err != nil {
 			return fmt.Errorf("opening db: %w", err)
 		}

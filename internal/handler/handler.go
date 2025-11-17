@@ -137,13 +137,13 @@ func (h *HTTPHandler) UpdateManyHandlerJSON(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *HTTPHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
-	metricsID := r.PathValue("name")
-	if metricsID == "" {
-		http.Error(w, "empty id", http.StatusBadRequest)
-		return
-	}
-	metrics, err := h.svc.Get(r.Context(), metricsID)
+	metrics, err := h.svc.Get(r.Context(), r.PathValue("name"))
 	if err != nil {
+		if errors.Is(err, service.ErrEmptyID) {
+			slog.Default().Error("", slog.Any("error", err))
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
 		if errors.Is(err, service.ErrMetricsNotFound) {
 			slog.Default().Error("", slog.Any("error", err))
 			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
