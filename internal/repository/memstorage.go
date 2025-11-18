@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"maps"
 	"slices"
 
@@ -18,12 +19,19 @@ func NewMemStorage() *MemStorage {
 	}
 }
 
-func (m *MemStorage) Save(metric models.Metrics) error {
+func (m *MemStorage) Save(_ context.Context, metric models.Metrics) error {
 	m.metrics[metric.ID] = metric
 	return nil
 }
 
-func (m *MemStorage) Get(id string) (models.Metrics, error) {
+func (m *MemStorage) SaveMany(_ context.Context, metrics []models.Metrics) error {
+	for _, metric := range metrics {
+		m.metrics[metric.ID] = metric
+	}
+	return nil
+}
+
+func (m *MemStorage) Get(_ context.Context, id string) (models.Metrics, error) {
 	v, ok := m.metrics[id]
 	if !ok {
 		return models.Metrics{}, service.ErrMetricsNotFound
@@ -31,6 +39,10 @@ func (m *MemStorage) Get(id string) (models.Metrics, error) {
 	return v, nil
 }
 
-func (m *MemStorage) GetAll() ([]models.Metrics, error) {
+func (m *MemStorage) GetAll(_ context.Context) ([]models.Metrics, error) {
 	return slices.Collect(maps.Values(m.metrics)), nil
+}
+
+func (m *MemStorage) RepoPing(_ context.Context) error {
+	return nil
 }

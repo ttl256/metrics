@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,9 +24,11 @@ var (
 )
 
 type MetricsService interface {
-	Save(models.Metrics) error
-	Get(string) (models.Metrics, error)
-	GetAll() ([]models.Metrics, error)
+	Save(context.Context, models.Metrics) error
+	SaveMany(context.Context, []models.Metrics) error
+	Get(context.Context, string) (models.Metrics, error)
+	GetAll(context.Context) ([]models.Metrics, error)
+	RepoPing(context.Context) error
 }
 
 type HTTPHandler struct {
@@ -51,7 +54,9 @@ func (h *HTTPHandler) Routes() *chi.Mux {
 	r.Get("/all", h.GetAllHandler)
 	r.Post("/update/{type}/{name}/{value}", h.UpdateHandler)
 	r.Post("/update/", h.UpdateHandlerJSON)
+	r.Post("/updates/", h.UpdateManyHandlerJSON)
 	r.Post("/value/", h.GetHandlerJSON)
+	r.Get("/ping", h.Ping)
 
 	return r
 }
@@ -63,7 +68,7 @@ func (h *HTTPHandler) UpdateHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	if err = h.svc.Save(metrics); err != nil {
+	if err = h.svc.Save(r.Context(), metrics); err != nil {
 		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
@@ -92,7 +97,38 @@ func (h *HTTPHandler) UpdateHandlerJSON(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
-	if err := h.svc.Save(metrics); err != nil {
+	if err := h.svc.Save(r.Context(), metrics); err != nil {
+		slog.Default().Error("", slog.Any("error", err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *HTTPHandler) UpdateManyHandlerJSON(w http.ResponseWriter, r *http.Request) {
+	var metrics []models.Metrics
+	if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
+		slog.Default().Error("", slog.Any("error", err))
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Gauge:
+			if metric.Value == nil {
+				slog.Default().Error("", slog.Any("error", errors.New("value is not set for gauge metric")))
+				http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+		case models.Counter:
+			if metric.Delta == nil {
+				slog.Default().Error("", slog.Any("error", errors.New("delta is not set for counter metric")))
+				http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+		}
+	}
+	if err := h.svc.SaveMany(r.Context(), metrics); err != nil {
 		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
@@ -101,13 +137,13 @@ func (h *HTTPHandler) UpdateHandlerJSON(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *HTTPHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
-	metricsID := r.PathValue("name")
-	if metricsID == "" {
-		http.Error(w, "empty id", http.StatusBadRequest)
-		return
-	}
-	metrics, err := h.svc.Get(metricsID)
+	metrics, err := h.svc.Get(r.Context(), r.PathValue("name"))
 	if err != nil {
+		if errors.Is(err, service.ErrEmptyID) {
+			slog.Default().Error("", slog.Any("error", err))
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
 		if errors.Is(err, service.ErrMetricsNotFound) {
 			slog.Default().Error("", slog.Any("error", err))
 			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
@@ -135,7 +171,7 @@ func (h *HTTPHandler) GetHandlerJSON(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	metrics, err := h.svc.Get(metricsReq.ID)
+	metrics, err := h.svc.Get(r.Context(), metricsReq.ID)
 	if err != nil {
 		if errors.Is(err, service.ErrMetricsNotFound) {
 			slog.Default().Error("", slog.Any("error", err))
@@ -152,13 +188,13 @@ func (h *HTTPHandler) GetHandlerJSON(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("content-type", "application/json")
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }
 
-func (h *HTTPHandler) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
-	metrics, err := h.svc.GetAll()
+func (h *HTTPHandler) GetAllHandler(w http.ResponseWriter, r *http.Request) {
+	metrics, err := h.svc.GetAll(r.Context())
 	if err != nil {
 		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -170,7 +206,7 @@ func (h *HTTPHandler) GetAllHandler(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("content-type", "text/html")
+	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(http.StatusOK)
 	var buf bytes.Buffer
 	buf.WriteString("<html>")
@@ -186,9 +222,18 @@ func (h *HTTPHandler) HealthHandler(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("content-type", "application/json")
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
+}
+
+func (h *HTTPHandler) Ping(w http.ResponseWriter, r *http.Request) {
+	err := h.svc.RepoPing(r.Context())
+	if err != nil {
+		http.Error(w, "repository is unavailable", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func newMetrics(_type, name, value string) (models.Metrics, error) {

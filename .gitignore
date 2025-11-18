@@ -26,3 +26,5 @@ vendor/
 
 tools
 .DS_Store
+.env
+.service.env/
