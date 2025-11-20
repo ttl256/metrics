@@ -14,6 +14,7 @@ type Server struct {
 	StoreInterval   time.Duration
 	FileStoragePath string
 	Restore         bool
+	Key             string
 	DB              DBConfig
 }
 
@@ -23,6 +24,7 @@ func DefaultServer() *Server {
 		StoreInterval:   300 * time.Second, //nolint: mnd //fine
 		FileStoragePath: filepath.Join(os.TempDir(), "metrics_state.json"),
 		Restore:         false,
+		Key:             "",
 		DB: DBConfig{
 			DSN:                    "",
 			ApplicationName:        "",
@@ -62,6 +64,9 @@ func (a *Server) ApplyEnv() error { //nolint: gocognit,funlen //let me be
 			return fmt.Errorf("parsing RESTORE: %w", err)
 		}
 		a.Restore = restore
+	}
+	if v, ok := os.LookupEnv("KEY"); ok {
+		a.Key = v
 	}
 	if v, ok := os.LookupEnv("DATABASE_DSN"); ok {
 		a.DB.DSN = v
@@ -147,6 +152,7 @@ func (a *Server) ApplyFlags(fs *flag.FlagSet, args []string) error {
 	storeIntervalFlag := fs.Duration("i", a.StoreInterval, "store interval")
 	fileStoragePathFlag := fs.String("f", a.FileStoragePath, "file to store metrics")
 	restoreFlag := fs.Bool("r", a.Restore, "read metrics from a file on startup")
+	keyFlag := fs.String("k", a.Key, "key to hash metrics")
 	dsnFlag := fs.String("d", a.DB.DSN, "database DSN")
 	dbAppNameFlag := fs.String("db-app-name", a.DB.ApplicationName, "db application_name")
 	dbConnectTimeoutFlag := fs.Duration("db-connect-timeout", a.DB.ConnectTimeout, "db connect_timeout")
@@ -176,6 +182,7 @@ func (a *Server) ApplyFlags(fs *flag.FlagSet, args []string) error {
 	a.StoreInterval = *storeIntervalFlag
 	a.FileStoragePath = *fileStoragePathFlag
 	a.Restore = *restoreFlag
+	a.Key = *keyFlag
 	a.DB.DSN = *dsnFlag
 	a.DB.ApplicationName = *dbAppNameFlag
 	a.DB.ConnectTimeout = *dbConnectTimeoutFlag

@@ -38,6 +38,6 @@ func run() error {
 		return fmt.Errorf("initiating app: %w", err)
 	}
 	ctx := context.Background()
-	a := agent.NewAgent(cfg.Endpoint, cfg.PollInterval, cfg.ReportInterval)
+	a := agent.NewAgent(cfg.Endpoint, cfg.PollInterval, cfg.ReportInterval, []byte(cfg.Key))
 	return fmt.Errorf("agent: %w", a.Run(ctx))
 }

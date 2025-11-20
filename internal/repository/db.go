@@ -253,10 +253,10 @@ func (m *DBStorage) RepoPing(ctx context.Context) error {
 	var attempt int
 	_, err := backoff.Retry(ctx, func() (bool, error) {
 		attempt++
-		m.logger.InfoContext(ctx, "connecting to db", slog.Int("attempt", attempt))
+		m.logger.DebugContext(ctx, "connecting to db", slog.Int("attempt", attempt))
 		err := m.db.Ping(ctx)
 		if err != nil {
-			m.logger.Error("failed connecting to db", slog.Any("error", err))
+			m.logger.Error("failed connecting to db", slog.Int("attempt", attempt), slog.Any("error", err))
 			return true, fmt.Errorf("ping db: %w", err)
 		}
 		return true, nil

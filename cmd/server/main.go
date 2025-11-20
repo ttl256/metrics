@@ -94,7 +94,7 @@ func run() error {
 	}
 
 	svc := service.NewService(repo)
-	h := handler.NewHTTPHandler(svc)
+	h := handler.NewHTTPHandler(svc, []byte(cfg.Key))
 
 	srv := &http.Server{
 		Addr:         cfg.Address,
