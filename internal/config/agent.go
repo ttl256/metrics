@@ -12,6 +12,7 @@ type Agent struct {
 	Endpoint       string
 	ReportInterval time.Duration
 	PollInterval   time.Duration
+	Key            string
 }
 
 func DefaultAgent() *Agent {
@@ -19,6 +20,7 @@ func DefaultAgent() *Agent {
 		Endpoint:       "http://localhost:8080",
 		ReportInterval: 10 * time.Second, //nolint: mnd //default value
 		PollInterval:   2 * time.Second,  //nolint: mnd //default value
+		Key:            "",
 	}
 }
 
@@ -43,6 +45,9 @@ func (a *Agent) ApplyEnv() error {
 		}
 		a.PollInterval = pollInterval
 	}
+	if v, ok := os.LookupEnv("KEY"); ok {
+		a.Key = v
+	}
 	return nil
 }
 
@@ -50,6 +55,7 @@ func (a *Agent) ApplyFlags(fs *flag.FlagSet, args []string) error {
 	address := fs.String("a", a.Endpoint, "server address to listen on")
 	reportIntervalFlag := fs.String("r", a.ReportInterval.String(), "metric report interval")
 	pollIntervalFlag := fs.String("p", a.PollInterval.String(), "metric poll interval")
+	keyFlag := fs.String("k", a.Key, "key to hash metrics")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parsing command line flags: %w", err)
 	}
@@ -75,5 +81,7 @@ func (a *Agent) ApplyFlags(fs *flag.FlagSet, args []string) error {
 		return fmt.Errorf("parsing poll interval flag: %w", err)
 	}
 	a.PollInterval = pollInterval
+
+	a.Key = *keyFlag
 	return nil
 }

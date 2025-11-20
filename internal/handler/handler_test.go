@@ -18,7 +18,7 @@ import (
 func TestAppHealthHandler(t *testing.T) {
 	repo := repository.NewMemStorage()
 	svc := service.NewService(repo)
-	h := NewHTTPHandler(svc)
+	h := NewHTTPHandler(svc, nil)
 	srv := httptest.NewServer(h.Routes())
 	defer srv.Close()
 
@@ -35,7 +35,7 @@ func TestAppHealthHandler(t *testing.T) {
 func TestAppUpdateHandler(t *testing.T) {
 	repo := repository.NewMemStorage()
 	svc := service.NewService(repo)
-	h := NewHTTPHandler(svc)
+	h := NewHTTPHandler(svc, nil)
 	srv := httptest.NewServer(h.Routes())
 	defer srv.Close()
 

@@ -15,6 +15,7 @@ import (
 	xerrors "github.com/pkg/errors"
 	"resty.dev/v3"
 
+	"github.com/ttl256/metrics/internal/common"
 	models "github.com/ttl256/metrics/internal/model"
 )
 
@@ -26,12 +27,14 @@ type Agent struct {
 	counter        int64
 	logger         *slog.Logger
 	client         *resty.Client
+	key            []byte
 }
 
 func NewAgent(
 	endpoint string,
 	pollInterval time.Duration,
 	reportInterval time.Duration,
+	key []byte,
 ) *Agent {
 	return &Agent{
 		url:            endpoint,
@@ -41,6 +44,7 @@ func NewAgent(
 		counter:        0,
 		logger:         slog.Default(),
 		client:         resty.New().SetBaseURL(endpoint),
+		key:            key,
 	}
 }
 
@@ -50,8 +54,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	a.logger.InfoContext(
 		ctx,
 		"starting agent",
-		slog.Duration("poll_interval", a.pollInterval),
-		slog.Duration("report_interval", a.reportInterval),
+		slog.String("poll_interval", a.pollInterval.String()),
+		slog.String("report_interval", a.reportInterval.String()),
 	)
 	for {
 		select {
@@ -111,7 +115,16 @@ func (a *Agent) send(ctx context.Context, path string) error {
 	if err != nil {
 		return fmt.Errorf("compressing: %w", err)
 	}
-	resp, err := a.client.R().
+	req := a.client.R()
+	if len(a.key) != 0 {
+		var computedHash string
+		computedHash, err = common.Hash(body, a.key)
+		if err != nil {
+			return fmt.Errorf("computing hash: %w", err)
+		}
+		req.SetHeader(common.HashHeader, computedHash)
+	}
+	resp, err := req.
 		SetContentType("application/json").
 		SetHeader("Content-Encoding", "gzip").
 		SetHeader("Accept-Encoding", "gzip").

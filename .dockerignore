@@ -1,0 +1,14 @@
+# Git
+.git
+# Binaries
+bin
+cmd/server/server
+cmd/agent/agent
+tools
+# Other
+.gitignore
+.github
+.golangci.yml
+README.md
+.vscode
+.env
