@@ -34,7 +34,7 @@ run:
 
 .PHONY: build
 build:
-	CGO_ENABLED=0 $(GOCMD) build -a -installsuffix cgo_off -o bin/server ./cmd/server \
+	CGO_ENABLED=0 $(GOCMD) build -o bin/server ./cmd/server \
 	&& ln -sf ../../bin/server ./cmd/server/server
-	CGO_ENABLED=0 $(GOCMD) build -a -installsuffix cgo_off -o bin/agent ./cmd/agent \
+	CGO_ENABLED=0 $(GOCMD) build -o bin/agent ./cmd/agent \
 	&& ln -sf ../../bin/agent ./cmd/agent/agent 

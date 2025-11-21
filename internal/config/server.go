@@ -3,6 +3,7 @@ package config
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,6 +16,7 @@ type Server struct {
 	FileStoragePath string
 	Restore         bool
 	Key             string
+	LogLevel        slog.Level
 	DB              DBConfig
 }
 
@@ -25,6 +27,7 @@ func DefaultServer() *Server {
 		FileStoragePath: filepath.Join(os.TempDir(), "metrics_state.json"),
 		Restore:         false,
 		Key:             "",
+		LogLevel:        slog.LevelInfo,
 		DB: DBConfig{
 			DSN:                    "",
 			ApplicationName:        "",
@@ -44,7 +47,7 @@ func DefaultServer() *Server {
 	}
 }
 
-func (a *Server) ApplyEnv() error { //nolint: gocognit,funlen //let me be
+func (a *Server) ApplyEnv() error { //nolint: gocognit,funlen,gocyclo,cyclop //let me be
 	if v, ok := os.LookupEnv("ADDRESS"); ok {
 		a.Address = v
 	}
@@ -67,6 +70,14 @@ func (a *Server) ApplyEnv() error { //nolint: gocognit,funlen //let me be
 	}
 	if v, ok := os.LookupEnv("KEY"); ok {
 		a.Key = v
+	}
+	if v, ok := os.LookupEnv("LOG_LEVEL"); ok {
+		lvl := slog.Level(0)
+		err := lvl.UnmarshalText([]byte(v))
+		if err != nil {
+			return fmt.Errorf("parsing log level: %w", err)
+		}
+		a.LogLevel = lvl
 	}
 	if v, ok := os.LookupEnv("DATABASE_DSN"); ok {
 		a.DB.DSN = v
@@ -153,6 +164,7 @@ func (a *Server) ApplyFlags(fs *flag.FlagSet, args []string) error {
 	fileStoragePathFlag := fs.String("f", a.FileStoragePath, "file to store metrics")
 	restoreFlag := fs.Bool("r", a.Restore, "read metrics from a file on startup")
 	keyFlag := fs.String("k", a.Key, "key to hash metrics")
+	logLevelFlag := fs.String("log_level", a.LogLevel.String(), "log level")
 	dsnFlag := fs.String("d", a.DB.DSN, "database DSN")
 	dbAppNameFlag := fs.String("db-app-name", a.DB.ApplicationName, "db application_name")
 	dbConnectTimeoutFlag := fs.Duration("db-connect-timeout", a.DB.ConnectTimeout, "db connect_timeout")
@@ -183,6 +195,12 @@ func (a *Server) ApplyFlags(fs *flag.FlagSet, args []string) error {
 	a.FileStoragePath = *fileStoragePathFlag
 	a.Restore = *restoreFlag
 	a.Key = *keyFlag
+	lvl := slog.Level(0)
+	err := lvl.UnmarshalText([]byte(*logLevelFlag))
+	if err != nil {
+		return fmt.Errorf("parsing log level: %w", err)
+	}
+	a.LogLevel = lvl
 	a.DB.DSN = *dsnFlag
 	a.DB.ApplicationName = *dbAppNameFlag
 	a.DB.ConnectTimeout = *dbConnectTimeoutFlag

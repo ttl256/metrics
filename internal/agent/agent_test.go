@@ -25,7 +25,7 @@ func TestSendMetrics(t *testing.T) {
 	defer server.Close()
 
 	v := 13.37
-	agent := NewAgent(server.URL, time.Duration(0), time.Duration(0), nil)
+	agent := NewAgent(server.URL, time.Duration(0), time.Duration(0), 1, nil)
 	agent.AddMetric(models.Metrics{
 		ID:    "test",
 		MType: models.Gauge,

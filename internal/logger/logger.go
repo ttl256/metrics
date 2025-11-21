@@ -3,18 +3,11 @@ package logger
 import (
 	"log/slog"
 	"os"
-
-	xerrors "github.com/pkg/errors"
 )
 
-func Initialize(level string) error {
-	lvl := slog.Level(0)
-	err := lvl.UnmarshalText([]byte(level))
-	if err != nil {
-		return xerrors.WithStack(err)
-	}
+func Initialize(level slog.Level) error {
 	lVar := slog.LevelVar{}
-	lVar.Set(lvl)
+	lVar.Set(level)
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		AddSource: false,
 		Level:     &lVar,
