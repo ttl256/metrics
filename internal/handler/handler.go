@@ -32,43 +32,46 @@ type MetricsService interface {
 }
 
 type HTTPHandler struct {
-	svc MetricsService
+	svc    MetricsService
+	logger *slog.Logger
+	key    []byte
 }
 
-func NewHTTPHandler(svc MetricsService) *HTTPHandler {
+func NewHTTPHandler(svc MetricsService, key []byte) *HTTPHandler {
 	return &HTTPHandler{
-		svc: svc,
+		svc:    svc,
+		logger: slog.Default(),
+		key:    key,
 	}
 }
 
-func (h *HTTPHandler) Routes() *chi.Mux {
+func (m *HTTPHandler) Routes() *chi.Mux {
 	const compressionLevel = 5
 	r := chi.NewRouter()
-	log := slog.Default()
-	r.Use(httplog.RequestLogger(log, nil))
+	r.Use(httplog.RequestLogger(m.logger, &httplog.Options{Level: slog.LevelWarn})) //nolint: exhaustruct //fine
 	r.Use(middleware.Compress(compressionLevel, "text/html", "application/json"))
-	r.Use(gzipMiddleware)
-	r.Get("/healthz", h.HealthHandler)
-	r.Get("/value/{type}/{name}", h.GetHandler)
-	r.Get("/", h.GetAllHandler)
-	r.Get("/all", h.GetAllHandler)
-	r.Post("/update/{type}/{name}/{value}", h.UpdateHandler)
-	r.Post("/update/", h.UpdateHandlerJSON)
-	r.Post("/updates/", h.UpdateManyHandlerJSON)
-	r.Post("/value/", h.GetHandlerJSON)
-	r.Get("/ping", h.Ping)
+	r.Use(m.gzipMiddleware)
+	r.Get("/healthz", m.HealthHandler)
+	r.Get("/value/{type}/{name}", m.GetHandler)
+	r.Get("/", m.GetAllHandler)
+	r.Get("/all", m.GetAllHandler)
+	r.With(m.validateHash).Post("/update/{type}/{name}/{value}", m.UpdateHandler)
+	r.With(m.validateHash).Post("/update/", m.UpdateHandlerJSON)
+	r.With(m.validateHash).Post("/updates/", m.UpdateManyHandlerJSON)
+	r.Post("/value/", m.GetHandlerJSON)
+	r.Get("/ping", m.Ping)
 
 	return r
 }
 
-func (h *HTTPHandler) UpdateHandler(w http.ResponseWriter, r *http.Request) {
+func (m *HTTPHandler) UpdateHandler(w http.ResponseWriter, r *http.Request) {
 	metrics, err := newMetrics(r.PathValue("type"), r.PathValue("name"), r.PathValue("value"))
 	if err != nil {
 		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	if err = h.svc.Save(r.Context(), metrics); err != nil {
+	if err = m.svc.Save(r.Context(), metrics); err != nil {
 		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
@@ -76,7 +79,7 @@ func (h *HTTPHandler) UpdateHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *HTTPHandler) UpdateHandlerJSON(w http.ResponseWriter, r *http.Request) {
+func (m *HTTPHandler) UpdateHandlerJSON(w http.ResponseWriter, r *http.Request) {
 	var metrics models.Metrics
 	if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
 		slog.Default().Error("", slog.Any("error", err))
@@ -97,7 +100,7 @@ func (h *HTTPHandler) UpdateHandlerJSON(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
-	if err := h.svc.Save(r.Context(), metrics); err != nil {
+	if err := m.svc.Save(r.Context(), metrics); err != nil {
 		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
@@ -105,7 +108,7 @@ func (h *HTTPHandler) UpdateHandlerJSON(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *HTTPHandler) UpdateManyHandlerJSON(w http.ResponseWriter, r *http.Request) {
+func (m *HTTPHandler) UpdateManyHandlerJSON(w http.ResponseWriter, r *http.Request) {
 	var metrics []models.Metrics
 	if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
 		slog.Default().Error("", slog.Any("error", err))
@@ -128,7 +131,7 @@ func (h *HTTPHandler) UpdateManyHandlerJSON(w http.ResponseWriter, r *http.Reque
 			}
 		}
 	}
-	if err := h.svc.SaveMany(r.Context(), metrics); err != nil {
+	if err := m.svc.SaveMany(r.Context(), metrics); err != nil {
 		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
@@ -136,8 +139,8 @@ func (h *HTTPHandler) UpdateManyHandlerJSON(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *HTTPHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
-	metrics, err := h.svc.Get(r.Context(), r.PathValue("name"))
+func (m *HTTPHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
+	metrics, err := m.svc.Get(r.Context(), r.PathValue("name"))
 	if err != nil {
 		if errors.Is(err, service.ErrEmptyID) {
 			slog.Default().Error("", slog.Any("error", err))
@@ -164,14 +167,14 @@ func (h *HTTPHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(value))
 }
 
-func (h *HTTPHandler) GetHandlerJSON(w http.ResponseWriter, r *http.Request) {
+func (m *HTTPHandler) GetHandlerJSON(w http.ResponseWriter, r *http.Request) {
 	var metricsReq models.Metrics
 	if err := json.NewDecoder(r.Body).Decode(&metricsReq); err != nil {
 		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	metrics, err := h.svc.Get(r.Context(), metricsReq.ID)
+	metrics, err := m.svc.Get(r.Context(), metricsReq.ID)
 	if err != nil {
 		if errors.Is(err, service.ErrMetricsNotFound) {
 			slog.Default().Error("", slog.Any("error", err))
@@ -193,8 +196,8 @@ func (h *HTTPHandler) GetHandlerJSON(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 }
 
-func (h *HTTPHandler) GetAllHandler(w http.ResponseWriter, r *http.Request) {
-	metrics, err := h.svc.GetAll(r.Context())
+func (m *HTTPHandler) GetAllHandler(w http.ResponseWriter, r *http.Request) {
+	metrics, err := m.svc.GetAll(r.Context())
 	if err != nil {
 		slog.Default().Error("", slog.Any("error", err))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -215,7 +218,7 @@ func (h *HTTPHandler) GetAllHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(buf.Bytes())
 }
 
-func (h *HTTPHandler) HealthHandler(w http.ResponseWriter, _ *http.Request) {
+func (m *HTTPHandler) HealthHandler(w http.ResponseWriter, _ *http.Request) {
 	data, err := json.Marshal(HealthResponse{Status: `OK`})
 	if err != nil {
 		slog.Default().Error("", slog.Any("error", err))
@@ -227,8 +230,8 @@ func (h *HTTPHandler) HealthHandler(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write(data)
 }
 
-func (h *HTTPHandler) Ping(w http.ResponseWriter, r *http.Request) {
-	err := h.svc.RepoPing(r.Context())
+func (m *HTTPHandler) Ping(w http.ResponseWriter, r *http.Request) {
+	err := m.svc.RepoPing(r.Context())
 	if err != nil {
 		http.Error(w, "repository is unavailable", http.StatusInternalServerError)
 		return

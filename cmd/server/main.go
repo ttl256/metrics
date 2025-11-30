@@ -31,14 +31,9 @@ func main() {
 }
 
 func run() error {
-	err := logger.Initialize("debug")
-	if err != nil {
-		return fmt.Errorf("setting logger: %w", err)
-	}
-	log := slog.Default()
 	cfg := config.DefaultServer()
 	fs := flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
-	err = cfg.ApplyFlags(fs, os.Args[1:])
+	err := cfg.ApplyFlags(fs, os.Args[1:])
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -48,7 +43,11 @@ func run() error {
 	if err = cfg.ApplyEnv(); err != nil {
 		return fmt.Errorf("initiating app: %w", err)
 	}
-
+	err = logger.Initialize(cfg.LogLevel)
+	if err != nil {
+		return fmt.Errorf("initiating logger: %w", err)
+	}
+	log := slog.Default()
 	ctx := context.Background()
 
 	var repo service.MetricsRepository
@@ -94,7 +93,7 @@ func run() error {
 	}
 
 	svc := service.NewService(repo)
-	h := handler.NewHTTPHandler(svc)
+	h := handler.NewHTTPHandler(svc, []byte(cfg.Key))
 
 	srv := &http.Server{
 		Addr:         cfg.Address,

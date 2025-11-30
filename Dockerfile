@@ -1,16 +1,22 @@
-FROM golang:1.25 as build
+FROM golang:1.25-alpine3.22 as builder
+LABEL stage=builder
+RUN apk update && apk add --no-cache make
 WORKDIR /app
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
 COPY . .
-RUN make build
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    make build
 
 FROM alpine:3.22 as server
 WORKDIR /root
-COPY --from=build /app/cmd/server/server .
+COPY --from=builder /app/bin/server .
 ENTRYPOINT ["./server"]
 
 FROM alpine:3.22 as agent
 WORKDIR /root
-COPY --from=build /app/cmd/agent/agent .
+COPY --from=builder /app/bin/agent .
 ENTRYPOINT ["./agent"]
